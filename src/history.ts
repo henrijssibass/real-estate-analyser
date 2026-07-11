@@ -3,6 +3,18 @@ import type { Listing, SeenRecord } from './types.js';
 import { contentHash } from './parse.js';
 
 export type ChangeType = 'NEW'|'PRICE_CHANGED'|'CONTENT_CHANGED'|'UNCHANGED';
+const comparableSearchFields: Array<keyof Listing> = ['url','address','rooms','areaM2','floor','totalFloors','series','priceEur'];
+
+export function hasImportantSearchChange(previous: SeenRecord, current: Listing): boolean {
+  const snapshot=previous.listingSnapshot; if(!snapshot) return true;
+  return comparableSearchFields.some((field)=>current[field]!==snapshot[field]);
+}
+
+export async function markSeenUnchanged(store:KeyValueStore,previous:SeenRecord,current:Listing,dryRun=false):Promise<SeenRecord>{
+  const record:SeenRecord={...previous,url:current.url,lastSeenAt:current.scrapedAt,
+    listingSnapshot:{...previous.listingSnapshot!,url:current.url,scrapedAt:current.scrapedAt,searchName:current.searchName,district:current.district}};
+  if(!dryRun) await store.setValue(`listing-${current.listingId}`,record); return record;
+}
 export async function updateHistory(store: KeyValueStore, listing: Listing, dryRun=false): Promise<{changeType:ChangeType; record:SeenRecord}> {
   const key=`listing-${listing.listingId}`; const previous=await store.getValue<SeenRecord>(key); const hash=contentHash(listing);
   const changeType:ChangeType=!previous?'NEW':previous.lastPriceEur!==listing.priceEur?'PRICE_CHANGED':previous.contentHash!==hash?'CONTENT_CHANGED':'UNCHANGED';
