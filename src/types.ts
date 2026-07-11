@@ -1,6 +1,6 @@
-export type SearchInput = string | { url: string; name?: string; district?: string };
+export type SearchInput = string | { url: string; name?: string; district?: string; seriesFocus?: string; roomsFocus?: string };
 export interface ActorInput {
-  searchUrls: SearchInput[];
+  searchUrls?: SearchInput[];
   minProfit?: number;
   maxListingsPerRun?: number;
   scrapeDetails?: boolean;

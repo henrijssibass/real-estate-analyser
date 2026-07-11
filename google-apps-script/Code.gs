@@ -3,6 +3,7 @@ const COMPS_SHEET = 'ARV_Comps';
 const RENO_SHEET = 'Renovation_Costs_v2';
 const COSTS_SHEET = 'Other_Costs';
 const FILTERS_SHEET = 'Deal_Filters';
+const SEARCH_URLS_SHEET = 'Search_URLs';
 const REVIEW_MIN_PROFIT_EUR = 4000;
 
 function doPost(e) {
@@ -10,6 +11,7 @@ function doPost(e) {
     const payload = JSON.parse(e.postData.contents || '{}');
     const expected = PropertiesService.getScriptProperties().getProperty('WEBHOOK_SECRET');
     if (!expected || payload.sharedSecret !== expected) return json_({ ok:false, error:'Unauthorized' });
+    if (payload.action === 'getSearchUrls') return json_({ok:true,searchUrls:loadActiveSearchUrls_()});
     const listings = Array.isArray(payload.listings) ? payload.listings : [];
     const minProfit = Number(payload.minProfitEur || 7000);
     const lock = LockService.getScriptLock(); lock.waitLock(30000);
@@ -23,6 +25,14 @@ function doPost(e) {
   } catch (err) { console.error(String(err)); return json_({ok:false,error:String(err)}); }
 }
 function doGet(){return json_({ok:true,service:'ss-apartment-deal-finder-sheets-bridge'});}
+
+function loadActiveSearchUrls_(){
+  const sh=SpreadsheetApp.getActive().getSheetByName(SEARCH_URLS_SHEET); if(!sh)return [];
+  const values=sh.getRange(4,1,Math.max(1,sh.getLastRow()-3),8).getDisplayValues();
+  return values.slice(1).filter(r=>norm_(r[0])==='yes'&&norm_(r[1])==='ss.com'&&r[3]).map(r=>({
+    url:r[3].trim(),name:r[2].trim(),district:r[4].trim(),seriesFocus:(r[5]||'All').trim(),roomsFocus:(r[6]||'All').trim()
+  }));
+}
 
 function loadConfig_() {
   const ss=SpreadsheetApp.getActive();

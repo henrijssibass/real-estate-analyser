@@ -6,7 +6,7 @@
     "searchUrls": {
       "title": "Search URLs",
       "type": "array",
-      "description": "Public SS.com apartment sale searches. Each item may be a URL string or an object with url, name and district.",
+      "description": "Fallback public SS.com apartment sale searches. When the Sheets bridge is available, active Search_URLs rows are used instead.",
       "editor": "json",
       "default": [{"url":"https://www.ss.lv/lv/real-estate/flats/riga/kengarags/sell/","name":"Ķengarags — all sale listings","district":"Ķengarags"}]
     },
@@ -16,6 +16,5 @@
     "dryRun": { "title": "Dry run", "description": "Process and emit results without updating persistent seen-history records.", "type": "boolean", "default": false },
     "maxConcurrency": { "title": "Maximum concurrency", "description": "Maximum simultaneous HTTP requests; capped at five to limit source load.", "type": "integer", "default": 2, "minimum": 1, "maximum": 5 },
     "requestDelaySecs": { "title": "Delay between requests (seconds)", "description": "Polite delay applied by each request handler before parsing a page.", "type": "number", "default": 1.5, "minimum": 1, "maximum": 30 }
-  },
-  "required": ["searchUrls"]
+  }
 }
