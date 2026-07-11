@@ -10,12 +10,12 @@
       "editor": "json",
       "default": [{"url":"https://www.ss.lv/lv/real-estate/flats/riga/kengarags/sell/","name":"Ķengarags — all sale listings","district":"Ķengarags"}]
     },
-    "minProfit": { "title": "Minimum profit (€)", "type": "integer", "default": 7000, "minimum": 0 },
-    "maxListingsPerRun": { "title": "Maximum listings", "type": "integer", "default": 100, "minimum": 1, "maximum": 1000 },
-    "scrapeDetails": { "title": "Scrape detail pages", "type": "boolean", "default": true },
-    "dryRun": { "title": "Dry run", "type": "boolean", "default": false },
-    "maxConcurrency": { "title": "Maximum concurrency", "type": "integer", "default": 2, "minimum": 1, "maximum": 5 },
-    "requestDelaySecs": { "title": "Delay between requests (seconds)", "type": "number", "default": 1.5, "minimum": 1, "maximum": 30 }
+    "minProfit": { "title": "Minimum profit (€)", "description": "Minimum expected profit used by the later deal-analysis stage.", "type": "integer", "default": 7000, "minimum": 0 },
+    "maxListingsPerRun": { "title": "Maximum listings", "description": "Hard cap on unique listings discovered during one Actor run.", "type": "integer", "default": 100, "minimum": 1, "maximum": 1000 },
+    "scrapeDetails": { "title": "Scrape detail pages", "description": "Visit public listing detail pages for descriptions, images and optional metadata.", "type": "boolean", "default": true },
+    "dryRun": { "title": "Dry run", "description": "Process and emit results without updating persistent seen-history records.", "type": "boolean", "default": false },
+    "maxConcurrency": { "title": "Maximum concurrency", "description": "Maximum simultaneous HTTP requests; capped at five to limit source load.", "type": "integer", "default": 2, "minimum": 1, "maximum": 5 },
+    "requestDelaySecs": { "title": "Delay between requests (seconds)", "description": "Polite delay applied by each request handler before parsing a page.", "type": "number", "default": 1.5, "minimum": 1, "maximum": 30 }
   },
   "required": ["searchUrls"]
 }
