@@ -58,7 +58,8 @@ for (const listing of evaluatedListings) {
   const finalStatus=analysis?.status??'UNCERTAIN'; statusCounts[finalStatus]=(statusCounts[finalStatus]??0)+1;
   if(analysis?.status!=='FAIL'&&(internal._changeType!=='UNCHANGED'||statusChanged)) await Actor.pushData(output);
   if(!input.dryRun&&analysis){ const fingerprint=notificationFingerprint(listing,analysis);
-    if(shouldNotify(analysis,record.lastNotifiedFingerprint===fingerprint)&&await sendTelegram(listing,analysis)){record.lastNotifiedFingerprint=fingerprint;notificationsSent++;}
+    const hasDealNumbers=analysis.baseArvEur!=null&&analysis.expectedProfitEur!=null&&analysis.roi!=null;
+    if(hasDealNumbers&&shouldNotify(analysis,record.lastNotifiedFingerprint===fingerprint)&&await sendTelegram(listing,analysis)){record.lastNotifiedFingerprint=fingerprint;notificationsSent++;}
     record.lastStatus=analysis.status; await store.setValue(`listing-${listing.listingId}`,record);}
 }
 await Actor.setValue('RUN_SUMMARY',{finishedAt:new Date().toISOString(),discovered,evaluated:evaluatedListings.length,maxListings,dryRun:input.dryRun??false,sheetsConnected:analyses.size>0,statusCounts,notificationsSent});
