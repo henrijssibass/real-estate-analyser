@@ -18,6 +18,10 @@ The Actor does not authenticate, solve CAPTCHAs, rotate identities to evade bloc
 
 ## Current output
 
-Until the Sheet sync imports the workbook's comparable and cost tables, changed listings are emitted as `UNCERTAIN` with `DEAL_ANALYSIS_PENDING_SHEET_SYNC`. This prevents false PASS decisions.
+When `GOOGLE_SHEETS_WEBHOOK_URL` and `GOOGLE_SHEETS_WEBHOOK_SECRET` are configured, the Actor sends scraped listings to the bound Apps Script bridge for live workbook underwriting and receives PASS / REVIEW / FAIL results. Without that bridge, changed listings remain `UNCERTAIN` with `DEAL_ANALYSIS_PENDING_SHEET_SYNC`.
 
 When SS.com does not publish a bathroom count, the Actor uses `bathrooms: 1` and emits the `LOW_CONFIDENCE_BATHROOM_COUNT` risk flag. A later Sheet override may replace that assumption.
+
+Telegram uses only the encrypted Apify variables `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. Notifications are sent for PASS and important REVIEW results only. The named history store retains the last notification fingerprint (`listing ID + price + status`) to prevent repeated two-hour alerts.
+
+See `google-apps-script/README.md` for the credential-free Google Sheets bridge deployment.

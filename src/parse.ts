@@ -38,7 +38,7 @@ export function enrichFromDetail($: CheerioRoot, listing: Listing): Listing {
   const title = clean($('#msg_div_msg').text()) || clean($('h2').first().text()) || listing.title;
   const description = clean($('#msg_div_msg').text()) || title;
   const images = new Set<string>();
-  $('a[id^="im_link_"], img[id^="im_"], meta[property="og:image"]').each((_i: number, el: any) => {
+  $('a[href*="i.ss.lv/gallery/"], a[id^="im_link_"], img.pic_thumbnail, img[id^="im_"], meta[property="og:image"]').each((_i: number, el: any) => {
     const node = $(el); const raw = node.attr('href') || node.attr('src') || node.attr('content');
     if (raw && !raw.startsWith('data:')) images.add(new URL(raw, listing.url).href);
   });

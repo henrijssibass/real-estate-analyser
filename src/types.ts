@@ -22,4 +22,15 @@ export interface SeenRecord {
   lastPriceEur: number | null; contentHash: string;
   priceHistory: Array<{ at: string; priceEur: number | null }>;
   lastNotifiedFingerprint?: string;
+  lastStatus?: DealStatus;
+}
+export type DealStatus = 'PASS'|'REVIEW'|'FAIL'|'UNCERTAIN';
+export interface UnderwritingResult {
+  listingId: string; status: DealStatus; importantReview: boolean;
+  renovationCostEur: number | null; otherCostsEur: number | null;
+  totalProjectCostEur: number | null; conservativeArvEur: number | null;
+  baseArvEur: number | null; stretchArvEur: number | null;
+  expectedProfitEur: number | null; roi: number | null; profitMargin: number | null;
+  maximumOfferEur: number | null; compCount: number; confidence: 'HIGH'|'MEDIUM'|'LOW';
+  riskFlags: string[]; comparableEvidence: string;
 }
