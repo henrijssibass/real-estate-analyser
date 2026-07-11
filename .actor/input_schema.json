@@ -1,0 +1,21 @@
+{
+  "title": "SS.com apartment deal finder input",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "searchUrls": {
+      "title": "Search URLs",
+      "type": "array",
+      "description": "Public SS.com apartment sale searches. Each item may be a URL string or an object with url, name and district.",
+      "editor": "json",
+      "default": [{"url":"https://www.ss.lv/lv/real-estate/flats/riga/kengarags/sell/","name":"Ķengarags — all sale listings","district":"Ķengarags"}]
+    },
+    "minProfit": { "title": "Minimum profit (€)", "type": "integer", "default": 7000, "minimum": 0 },
+    "maxListingsPerRun": { "title": "Maximum listings", "type": "integer", "default": 100, "minimum": 1, "maximum": 1000 },
+    "scrapeDetails": { "title": "Scrape detail pages", "type": "boolean", "default": true },
+    "dryRun": { "title": "Dry run", "type": "boolean", "default": false },
+    "maxConcurrency": { "title": "Maximum concurrency", "type": "integer", "default": 2, "minimum": 1, "maximum": 5 },
+    "requestDelaySecs": { "title": "Delay between requests (seconds)", "type": "number", "default": 1.5, "minimum": 1, "maximum": 30 }
+  },
+  "required": ["searchUrls"]
+}
