@@ -80,6 +80,7 @@ for (const listing of evaluatedListings) {
     record.lastStatus=analysis.status; await store.setValue(`listing-${listing.listingId}`,record);}
 }
 const pass=statusCounts.PASS??0,review=statusCounts.REVIEW??0,analysisIgnored=(statusCounts.FAIL??0)+(statusCounts.UNCERTAIN??0)+filteredOut;
-await Actor.setValue('RUN_SUMMARY',{finishedAt:new Date().toISOString(),activeUrlsConfigured:searchUrls.length,activeUrlsChecked:checkedSearchUrls.size,totalListingsDiscovered:discovered,newListings,changedListings,skippedOldListings,
-  evaluated:evaluatedListings.length,pass,review,ignored:analysisIgnored,maxListings,dryRun:input.dryRun??false,sheetsConnected:analyses.size>0,statusCounts,notificationsSent});
+const runSummary={finishedAt:new Date().toISOString(),activeUrlsConfigured:searchUrls.length,activeUrlsChecked:checkedSearchUrls.size,totalListingsDiscovered:discovered,newListings,changedListings,skippedOldListings,
+  evaluated:evaluatedListings.length,pass,review,ignored:analysisIgnored,maxListings,dryRun:input.dryRun??false,sheetsConnected:analyses.size>0,statusCounts,notificationsSent};
+log.info('RUN_SUMMARY',runSummary); await Actor.setValue('RUN_SUMMARY',runSummary);
 await Actor.exit();
