@@ -69,7 +69,7 @@ for (const listing of evaluatedListings) {
   const actionable=analysis?.status==='PASS'||analysis?.status==='REVIEW';
   if(actionable&&(internal._changeType!=='UNCHANGED'||statusChanged)) await Actor.pushData(output);
   if(!input.dryRun&&analysis){ const fingerprint=notificationFingerprint(listing,analysis);
-    const hasDealNumbers=analysis.baseArvEur!=null&&analysis.expectedProfitEur!=null&&analysis.roi!=null;
+    const hasDealNumbers=analysis.underwritingArvEur!=null&&analysis.expectedProfitEur!=null&&analysis.roi!=null;
     if(hasDealNumbers&&shouldNotify(analysis,record.lastNotifiedFingerprint===fingerprint)&&await sendTelegram(listing,analysis)){record.lastNotifiedFingerprint=fingerprint;notificationsSent++;}
     record.lastStatus=analysis.status; await store.setValue(`listing-${listing.listingId}`,record);}
 }

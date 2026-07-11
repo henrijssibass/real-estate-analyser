@@ -13,7 +13,7 @@ export function formatTelegramDealAlert(listing: Listing, result: UnderwritingRe
   const money=(v:number|null)=>v==null?'—':new Intl.NumberFormat('en-IE',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(v);
   return [`🏠 ${listing.district}, ${listing.address}`,'',`💰 Price: ${money(listing.priceEur)}`,
     `📐 Size: ${listing.areaM2 ?? '—'} m²`,`🔨 Renovation: ${money(result.renovationCostEur)}`,
-    `🏦 ARV: ${money(result.baseArvEur)}`,`📈 Profit: ${money(result.expectedProfitEur)}`,
+    `🏦 ARV: ${money(result.underwritingArvEur)}`,`📈 Profit: ${money(result.expectedProfitEur)}`,
     `📊 ROI: ${result.roi==null?'—':`${(result.roi*100).toFixed(1)}%`}`,'',`🔗 Link:`,listing.url].join('\n');
 }
 
