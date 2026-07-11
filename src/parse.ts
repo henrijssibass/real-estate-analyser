@@ -20,12 +20,15 @@ export function parseSearchRows($: CheerioRoot, baseUrl: string, searchName: str
     if (!href || !/\/msg\//.test(href)) return;
     const cells = row.find('td.msga2-o').toArray().map((td: any) => clean($(td).text()));
     if (cells.length < 7) return;
-    const url = new URL(href, baseUrl).href; const floorParts = cells[4]?.split('/');
-    const priceEur = numberFrom(cells.at(-1) ?? ''); const areaM2 = numberFrom(cells[3] ?? '');
+    // SS.com may prepend auxiliary columns, but the final seven apartment
+    // columns are stable: address, rooms, area, floor, series, €/m², price.
+    const data = cells.slice(-7);
+    const url = new URL(href, baseUrl).href; const floorParts = data[3]?.split('/');
+    const priceEur = numberFrom(data[6] ?? ''); const areaM2 = numberFrom(data[2] ?? '');
     rows.push({ listingId: listingIdFromUrl(url), source:'SS.com', url, scrapedAt, publishedAt:null,
-      searchName, district, address:cells[1] ?? '', rooms:numberFrom(cells[2] ?? ''), bathrooms:null,
+      searchName, district, address:data[0] ?? '', rooms:numberFrom(data[1] ?? ''), bathrooms:null,
       areaM2, floor:numberFrom(floorParts?.[0] ?? ''), totalFloors:numberFrom(floorParts?.[1] ?? ''),
-      series:cells[5] || null, priceEur, pricePerM2:areaM2 && priceEur ? Math.round((priceEur/areaM2)*100)/100 : numberFrom(cells.at(-2) ?? ''),
+      series:data[4] || null, priceEur, pricePerM2:areaM2 && priceEur ? Math.round((priceEur/areaM2)*100)/100 : numberFrom(data[5] ?? ''),
       title:clean(link.text()), description:'', imageUrls:[], sellerType:null });
   });
   return rows;
