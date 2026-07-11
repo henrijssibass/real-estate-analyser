@@ -26,7 +26,10 @@ const crawler=new CheerioCrawler({ requestQueue:queue, maxConcurrency:Math.min(i
     await sleep(delay);
     if (request.userData.label==='SEARCH') {
       const listings=parseSearchRows($,request.url,request.userData.searchName,request.userData.district,new Date().toISOString());
-      for (const listing of listings) { if (discovered>=maxListings) break; discovered++; if (scrapeDetails) await queue.addRequest({url:listing.url,uniqueKey:`DETAIL-${listing.listingId}`,userData:{label:'DETAIL',listing}}); else await processListing(listing); }
+      for (const listing of listings) { if (discovered>=maxListings) break; discovered++;
+        const previous=await store.getValue<SeenRecord>(`listing-${listing.listingId}`);
+        if(previous?.lastPriceEur===listing.priceEur&&previous.listingSnapshot){await processListing({...previous.listingSnapshot,scrapedAt:new Date().toISOString(),searchName:listing.searchName,district:listing.district,url:listing.url});}
+        else if (scrapeDetails) await queue.addRequest({url:listing.url,uniqueKey:`DETAIL-${listing.listingId}`,userData:{label:'DETAIL',listing}}); else await processListing(listing); }
       if (discovered<maxListings) for (const url of paginationUrls($,request.url)) await queue.addRequest({url,userData:request.userData});
       return;
     }

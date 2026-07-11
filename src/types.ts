@@ -23,6 +23,7 @@ export interface SeenRecord {
   priceHistory: Array<{ at: string; priceEur: number | null }>;
   lastNotifiedFingerprint?: string;
   lastStatus?: DealStatus;
+  listingSnapshot?: Listing;
 }
 export type DealStatus = 'PASS'|'REVIEW'|'FAIL'|'UNCERTAIN';
 export interface UnderwritingResult {
