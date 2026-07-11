@@ -56,7 +56,8 @@ for (const listing of evaluatedListings) {
   delete (output as Record<string,unknown>)._changeType; delete (output as Record<string,unknown>)._firstSeenAt; delete (output as Record<string,unknown>)._bathroomWasMissing;
   const record=listingHistory.get(listing.listingId)!; const statusChanged=Boolean(analysis&&record.lastStatus&&record.lastStatus!==analysis.status);
   const finalStatus=analysis?.status??'UNCERTAIN'; statusCounts[finalStatus]=(statusCounts[finalStatus]??0)+1;
-  if(analysis?.status!=='FAIL'&&(internal._changeType!=='UNCHANGED'||statusChanged)) await Actor.pushData(output);
+  const actionable=analysis?.status==='PASS'||analysis?.status==='REVIEW';
+  if(actionable&&(internal._changeType!=='UNCHANGED'||statusChanged)) await Actor.pushData(output);
   if(!input.dryRun&&analysis){ const fingerprint=notificationFingerprint(listing,analysis);
     const hasDealNumbers=analysis.baseArvEur!=null&&analysis.expectedProfitEur!=null&&analysis.roi!=null;
     if(hasDealNumbers&&shouldNotify(analysis,record.lastNotifiedFingerprint===fingerprint)&&await sendTelegram(listing,analysis)){record.lastNotifiedFingerprint=fingerprint;notificationsSent++;}

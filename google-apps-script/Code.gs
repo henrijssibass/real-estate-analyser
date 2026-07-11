@@ -3,6 +3,7 @@ const COMPS_SHEET = 'ARV_Comps';
 const RENO_SHEET = 'Renovation_Costs_v2';
 const COSTS_SHEET = 'Other_Costs';
 const FILTERS_SHEET = 'Deal_Filters';
+const REVIEW_MIN_PROFIT_EUR = 4000;
 
 function doPost(e) {
   try {
@@ -15,7 +16,7 @@ function doPost(e) {
     try {
       const config = loadConfig_();
       const results = listings.map(l => underwrite_(l, config, minProfit));
-      results.forEach((r,i) => { if (r.status === 'PASS' || r.status === 'REVIEW') upsertRaw_(listings[i]); });
+      results.forEach((r,i) => { if (isActionable_(r)) upsertRaw_(listings[i]); });
       SpreadsheetApp.flush();
       return json_({ ok:true, results:results });
     } finally { lock.releaseLock(); }
@@ -47,14 +48,16 @@ function underwrite_(l,cfg,minProfit) {
   const maxOffer=base==null||reno==null?null:(base*(1-salePct)-reno-fixed-effectiveMinProfit)/(1+purchasePct);
   if(compCount<3) flags.push('FEW_ARV_COMPS'); if(reno==null) flags.push('RENOVATION_PROFILE_MISSING'); if(l.floor===1) flags.push('FIRST_FLOOR'); if(l.floor&&l.totalFloors&&l.floor===l.totalFloors) flags.push('TOP_FLOOR');
   let status='FAIL'; let importantReview=false;
-  if(base==null||reno==null||!l.priceEur){status='REVIEW';importantReview=true;flags.push('MISSING_UNDERWRITING_DATA');}
+  if(base==null||reno==null||!l.priceEur){status='FAIL';flags.push('MISSING_UNDERWRITING_DATA');}
   else if(filter===false){status='FAIL';flags.push('FILTER_REJECT');}
   else if(compCount>=3&&profit>=effectiveMinProfit&&(roi==null||roi>=effectiveMinRoi)) status='PASS';
-  else if(compCount<3||profit>=effectiveMinProfit*0.5){status='REVIEW';importantReview=profit>=effectiveMinProfit*0.75||compCount>=2;}
+  else if(profit>=REVIEW_MIN_PROFIT_EUR){status='REVIEW';importantReview=true;}
   const confidence=compCount>=3&&reno!=null?'HIGH':compCount>=2&&reno!=null?'MEDIUM':'LOW';
   const evidence=compCount?`${compCount} verified renovated sales; range €${Math.round(prices[0])}–€${Math.round(prices[prices.length-1])}; average €${Math.round(base)}`:'No exact verified renovated sales for district + series + rooms + bathrooms';
   return {listingId:l.listingId,status:status,importantReview:importantReview,renovationCostEur:round_(reno),otherCostsEur:round_(other),totalProjectCostEur:round_(total),conservativeArvEur:round_(conservative),baseArvEur:round_(base),stretchArvEur:round_(stretch),expectedProfitEur:round_(profit),roi:roi,profitMargin:margin,maximumOfferEur:round_(maxOffer),compCount:compCount,confidence:confidence,riskFlags:flags,comparableEvidence:evidence};
 }
+
+function isActionable_(result){return result.status==='PASS'||(result.status==='REVIEW'&&result.importantReview===true);}
 
 function matchFilter_(l,rows){
   const active=rows.filter(r=>norm_(r[0])==='yes'&&(!r[1]||norm_(r[1])===norm_(l.district))); if(!active.length)return null;

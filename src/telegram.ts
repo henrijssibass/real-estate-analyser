@@ -6,7 +6,7 @@ export const notificationFingerprint = (listing: Listing, result: UnderwritingRe
 
 export function shouldNotify(result: UnderwritingResult, alreadySent: boolean): boolean {
   if (alreadySent) return false;
-  return result.status === 'PASS' || (result.status === 'REVIEW' && result.importantReview);
+  return result.status === 'PASS' || result.status === 'REVIEW';
 }
 
 export function formatTelegramDealAlert(listing: Listing, result: UnderwritingResult): string {
