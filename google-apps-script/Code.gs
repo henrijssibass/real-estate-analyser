@@ -65,8 +65,9 @@ function underwrite_(l,cfg,minProfit) {
   const renoRows=cfg.reno.filter(r=>Number(r[1])===Number(l.rooms)&&Number(l.areaM2)>=Number(r[3])&&Number(l.areaM2)<=Number(r[4]));
   const renoRow=renoRows.find(r=>Number(r[2]||1)===1)||renoRows[0];
   const reno=renoRow?(Number(l.areaM2)*Number(renoRow[9]||0)+[11,12,13,14,18].reduce((s,i)=>s+Number(renoRow[i]||0),0))*(1+Number(renoRow[21]||0)):null;
-  const purchasePct=sumCost_(cfg.costs,'% of purchase'),salePct=sumCost_(cfg.costs,'% of sale'),fixed=sumCost_(cfg.costs,'Fixed €');
-  const other=underwritingArv==null?null:Number(l.priceEur||0)*purchasePct+underwritingArv*salePct+fixed; const total=reno==null||other==null?null:Number(l.priceEur||0)+reno+other;
+  const purchasePct=sumCost_(cfg.costs,'% of purchase'),salePct=sumCost_(cfg.costs,'% of sale'),fixed=sumCost_(cfg.costs,'Fixed €'),monthly=sumCost_(cfg.costs,'Monthly €');
+  // Until a per-listing holding period is configured, include one month of configured holding costs.
+  const other=underwritingArv==null?null:Number(l.priceEur||0)*purchasePct+underwritingArv*salePct+fixed+monthly; const total=reno==null||other==null?null:Number(l.priceEur||0)+reno+other;
   const profit=underwritingArv==null||total==null?null:underwritingArv-total; const roi=profit==null||!total?null:profit/total; const margin=profit==null||!underwritingArv?null:profit/underwritingArv;
   const filter=matchFilter_(l,cfg.filters); const effectiveMinProfit=filter&&Number(filter[11])>0?Number(filter[11]):minProfit; const effectiveMinRoi=filter&&Number(filter[12])>0?Number(filter[12]):0;
   const maxOffer=underwritingArv==null||reno==null?null:(underwritingArv*(1-salePct)-reno-fixed-effectiveMinProfit)/(1+purchasePct);
@@ -99,7 +100,7 @@ function upsertCandidate_(l,r,cfg) {
   const values=[[l.listingId,l.district,l.address,l.series,l.rooms,'',l.areaM2,l.floor,l.totalFloors,l.priceEur,l.pricePerM2,filterRow,filter===false?'FILTER REJECT':filter?'MATCHED':'AUTO','','','','',r.renovationCostEur,r.otherCostsEur,r.compCount,r.baseArvPerM2,r.baseArvEur,'','',manual,r.underwritingArvEur,r.totalProjectCostEur,r.expectedProfitEur,r.roi,r.status,(r.riskFlags||[]).join('; '),l.url]];
   sh.getRange(row,1,1,32).setValues(values);
 }
-function sumCost_(rows,type){return rows.filter(r=>String(r[1])===type).reduce((s,r)=>s+Number(r[2]||0),0);}
+function sumCost_(rows,type){return rows.filter(r=>String(r[1])===type).reduce((s,r)=>{const value=Number(r[2]);return s+(isFinite(value)?value:0);},0);}
 function norm_(v){return String(v||'').trim().toLocaleLowerCase('lv-LV');}
 function round_(v){return v==null||!isFinite(v)?null:Math.round(v*100)/100;}
 function safeDate_(v){if(!v)return '';const d=new Date(v);return isNaN(d.getTime())?'':d;}
