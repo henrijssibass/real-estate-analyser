@@ -16,5 +16,7 @@
     "dryRun": { "title": "Dry run", "description": "Process and emit results without updating persistent seen-history records.", "type": "boolean", "default": false },
     "maxConcurrency": { "title": "Maximum concurrency", "description": "Maximum simultaneous HTTP requests; capped at five to limit source load.", "type": "integer", "default": 2, "minimum": 1, "maximum": 5 },
     "requestDelaySecs": { "title": "Delay between requests (seconds)", "description": "Polite delay applied by each request handler before parsing a page.", "type": "number", "default": 1.5, "minimum": 1, "maximum": 30 }
+    ,"runMode": {"title":"Run mode","description":"FULL_SCAN evaluates every current listing without deleting history. INCREMENTAL evaluates only new or materially changed listings.","type":"string","editor":"select","default":"INCREMENTAL","enum":["INCREMENTAL","FULL_SCAN"],"enumTitles":["Incremental","Full scan"]}
+    ,"sendSummaryHeartbeat": {"title":"Send no-deals Telegram summary","description":"Send a short heartbeat when no PASS or qualified REVIEW deals are found.","type":"boolean","default":false}
   }
 }

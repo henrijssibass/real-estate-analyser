@@ -27,3 +27,12 @@ export async function sendTelegram(listing: Listing, result: UnderwritingResult)
     const body=await response.json() as {ok?:boolean}; if(!body.ok) throw new Error('Telegram rejected the message'); return true;
   } catch(error) { log.error('Telegram delivery failed',{message:error instanceof Error?error.message:String(error)}); return false; }
 }
+
+export async function sendTelegramSummary(summary:{activeUrlsChecked:number;totalListingsDiscovered:number;skippedOldListings:number;evaluated:number;pass:number;review:number}):Promise<boolean>{
+  const token=process.env.TELEGRAM_BOT_TOKEN; const chatId=process.env.TELEGRAM_CHAT_ID;
+  if(!token||!chatId){log.warning('Telegram summary skipped: required secret variables are unavailable');return false;}
+  const text=`No deals found. Checked ${summary.activeUrlsChecked} URLs, discovered ${summary.totalListingsDiscovered} listings, skipped ${summary.skippedOldListings} old, evaluated ${summary.evaluated} listings, PASS ${summary.pass}, REVIEW ${summary.review}.`;
+  try{const response=await fetch(`https://api.telegram.org/bot${token}/sendMessage`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:chatId,text,disable_web_page_preview:true})});
+    if(!response.ok)throw new Error(`Telegram returned HTTP ${response.status}`); const body=await response.json() as {ok?:boolean}; return body.ok===true;
+  }catch(error){log.error('Telegram summary delivery failed',{message:error instanceof Error?error.message:String(error)});return false;}
+}

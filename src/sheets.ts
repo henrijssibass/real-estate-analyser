@@ -25,16 +25,18 @@ export async function loadActiveSearchUrls(): Promise<SearchInput[]> {
   } catch(error) { log.error('Google Sheets search configuration failed',{message:error instanceof Error?error.message:String(error)}); return []; }
 }
 
-export async function syncAndUnderwrite(listings: Listing[], minProfitEur: number): Promise<Map<string, UnderwritingResult>> {
-  if (listings.length === 0) return new Map();
+export interface SheetsSyncResult { analyses: Map<string, UnderwritingResult>; sheetsRowsWritten: number }
+
+export async function syncAndUnderwrite(listings: Listing[], minProfitEur: number): Promise<SheetsSyncResult> {
+  if (listings.length === 0) return {analyses:new Map(),sheetsRowsWritten:0};
   try {
-    const response=await callBridge({action:'underwrite',minProfitEur,listings}); if(!response) return new Map();
+    const response=await callBridge({action:'underwrite',minProfitEur,listings}); if(!response) return {analyses:new Map(),sheetsRowsWritten:0};
     if (!response.ok) throw new Error(`Sheets bridge returned HTTP ${response.status}`);
-    const body = await response.json() as { ok?: boolean; results?: UnderwritingResult[]; error?: string };
+    const body = await response.json() as { ok?: boolean; results?: UnderwritingResult[]; sheetsRowsWritten?:number; error?: string };
     if (!body.ok || !Array.isArray(body.results)) throw new Error(body.error || 'Invalid Sheets bridge response');
-    return new Map(body.results.map((result) => [result.listingId, result]));
+    return {analyses:new Map(body.results.map((result) => [result.listingId, result])),sheetsRowsWritten:Number(body.sheetsRowsWritten??0)};
   } catch (error) {
     log.error('Google Sheets underwriting bridge failed', { message: error instanceof Error ? error.message : String(error) });
-    return new Map();
+    return {analyses:new Map(),sheetsRowsWritten:0};
   }
 }

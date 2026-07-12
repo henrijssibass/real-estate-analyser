@@ -7,6 +7,8 @@ export interface ActorInput {
   dryRun?: boolean;
   maxConcurrency?: number;
   requestDelaySecs?: number;
+  runMode?: 'FULL_SCAN'|'INCREMENTAL';
+  sendSummaryHeartbeat?: boolean;
 }
 export interface Listing {
   listingId: string; source: 'SS.com'; url: string; scrapedAt: string;

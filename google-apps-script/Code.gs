@@ -18,9 +18,10 @@ function doPost(e) {
     try {
       const config = loadConfig_();
       const results = listings.map(l => underwrite_(l, config, minProfit));
-      results.forEach((r,i) => { if (isActionable_(r)) upsertCandidate_(listings[i],r,config); });
+      let sheetsRowsWritten=0;
+      results.forEach((r,i) => { if (isActionable_(r)) { upsertCandidate_(listings[i],r,config); sheetsRowsWritten++; } });
       SpreadsheetApp.flush();
-      return json_({ ok:true, results:results });
+      return json_({ ok:true, results:results, sheetsRowsWritten:sheetsRowsWritten });
     } finally { lock.releaseLock(); }
   } catch (err) { console.error(String(err)); return json_({ok:false,error:String(err)}); }
 }
