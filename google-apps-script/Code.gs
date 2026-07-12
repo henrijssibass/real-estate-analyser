@@ -46,13 +46,16 @@ function loadConfig_() {
 }
 
 function underwrite_(l,cfg,minProfit) {
-  const flags=[]; const bathrooms=Number(l.bathrooms||1); if(!l.bathrooms) flags.push('LOW_CONFIDENCE_BATHROOM_COUNT');
+  const flags=[];
   const comparable=cfg.comps.filter(r=>String(r[16]).toLowerCase()==='yes'&&String(r[9]).toLowerCase().indexOf('verified')>=0&&
-    norm_(r[1])===norm_(l.district)&&norm_(r[3])===norm_(l.series)&&Number(r[4])===Number(l.rooms)&&Number(r[5]||1)===bathrooms&&Number(r[10])>0);
+    norm_(r[1])===norm_(l.district)&&norm_(r[3])===norm_(l.series)&&Number(r[4])===Number(l.rooms)&&Number(r[10])>0);
   const prices=comparable.map(r=>Number(r[10])).sort((a,b)=>a-b); const compCount=prices.length;
   const conservative=compCount?prices[0]:null; const base=compCount?prices.reduce((a,b)=>a+b,0)/compCount:null; const stretch=base==null?null:base*1.1;
   const manualOverride=manualArvOverride_(l.listingId,cfg.overrides); const underwritingArv=manualOverride==null?base:manualOverride;
-  const renoRow=cfg.reno.find(r=>Number(r[1])===Number(l.rooms)&&Number(r[2])===bathrooms&&Number(l.areaM2)>=Number(r[3])&&Number(l.areaM2)<=Number(r[4]));
+  // Bathroom count is unreliable on SS.com and must not affect qualification.
+  // Prefer the one-bath baseline, then any rooms+area profile as a fallback.
+  const renoRows=cfg.reno.filter(r=>Number(r[1])===Number(l.rooms)&&Number(l.areaM2)>=Number(r[3])&&Number(l.areaM2)<=Number(r[4]));
+  const renoRow=renoRows.find(r=>Number(r[2]||1)===1)||renoRows[0];
   const reno=renoRow?(Number(l.areaM2)*Number(renoRow[9]||0)+[11,12,13,14,18].reduce((s,i)=>s+Number(renoRow[i]||0),0))*(1+Number(renoRow[21]||0)):null;
   const purchasePct=sumCost_(cfg.costs,'% of purchase'),salePct=sumCost_(cfg.costs,'% of sale'),fixed=sumCost_(cfg.costs,'Fixed €');
   const other=underwritingArv==null?null:Number(l.priceEur||0)*purchasePct+underwritingArv*salePct+fixed; const total=reno==null||other==null?null:Number(l.priceEur||0)+reno+other;
@@ -66,7 +69,7 @@ function underwrite_(l,cfg,minProfit) {
   else if(compCount>=3&&profit>=effectiveMinProfit&&(roi==null||roi>=effectiveMinRoi)) status='PASS';
   else if(profit>=REVIEW_MIN_PROFIT_EUR&&compCount>=2&&roi>=0.10){status='REVIEW';importantReview=true;}
   const confidence=compCount>=3&&reno!=null?'HIGH':compCount>=2&&reno!=null?'MEDIUM':'LOW';
-  const evidence=compCount?`${compCount} verified renovated sales; range €${Math.round(prices[0])}–€${Math.round(prices[prices.length-1])}; average €${Math.round(base)}`:'No exact verified renovated sales for district + series + rooms + bathrooms';
+  const evidence=compCount?`${compCount} verified renovated sales; range €${Math.round(prices[0])}–€${Math.round(prices[prices.length-1])}; average €${Math.round(base)}`:'No exact verified renovated sales for district + series + rooms';
   return {listingId:l.listingId,status:status,importantReview:importantReview,renovationCostEur:round_(reno),otherCostsEur:round_(other),totalProjectCostEur:round_(total),conservativeArvEur:round_(conservative),baseArvPerM2:base==null||!l.areaM2?null:round_(base/Number(l.areaM2)),baseArvEur:round_(base),manualArvOverrideEur:round_(manualOverride),underwritingArvEur:round_(underwritingArv),stretchArvEur:round_(stretch),expectedProfitEur:round_(profit),roi:roi,profitMargin:margin,maximumOfferEur:round_(maxOffer),compCount:compCount,confidence:confidence,riskFlags:flags,comparableEvidence:evidence};
 }
 
@@ -85,7 +88,7 @@ function upsertCandidate_(l,r,cfg) {
   const sh=SpreadsheetApp.getActive().getSheetByName(CANDIDATES_SHEET); const last=Math.max(4,sh.getLastRow());
   const ids=last>=5?sh.getRange(5,1,last-4,1).getDisplayValues().flat():[]; const found=ids.indexOf(String(l.listingId)); const row=found>=0?found+5:last+1;
   const filter=matchFilter_(l,cfg.filters); const filterRow=filter&&filter!==false?cfg.filters.indexOf(filter)+5:''; const manual=r.manualArvOverrideEur;
-  const values=[[l.listingId,l.district,l.address,l.series,l.rooms,l.bathrooms,l.areaM2,l.floor,l.totalFloors,l.priceEur,l.pricePerM2,filterRow,filter===false?'FILTER REJECT':filter?'MATCHED':'AUTO','','','','',r.renovationCostEur,r.otherCostsEur,r.compCount,r.baseArvPerM2,r.baseArvEur,'','',manual,r.underwritingArvEur,r.totalProjectCostEur,r.expectedProfitEur,r.roi,r.status,(r.riskFlags||[]).join('; '),l.url]];
+  const values=[[l.listingId,l.district,l.address,l.series,l.rooms,'',l.areaM2,l.floor,l.totalFloors,l.priceEur,l.pricePerM2,filterRow,filter===false?'FILTER REJECT':filter?'MATCHED':'AUTO','','','','',r.renovationCostEur,r.otherCostsEur,r.compCount,r.baseArvPerM2,r.baseArvEur,'','',manual,r.underwritingArvEur,r.totalProjectCostEur,r.expectedProfitEur,r.roi,r.status,(r.riskFlags||[]).join('; '),l.url]];
   sh.getRange(row,1,1,32).setValues(values);
 }
 function sumCost_(rows,type){return rows.filter(r=>String(r[1])===type).reduce((s,r)=>s+Number(r[2]||0),0);}

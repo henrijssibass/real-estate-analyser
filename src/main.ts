@@ -53,10 +53,11 @@ const crawler=new CheerioCrawler({ requestQueue:queue, maxConcurrency:Math.min(i
 });
 async function processListing(listing:Listing,seriesFocus?:string,roomsFocus?:string) {
   if(!matchesFocus(listing,seriesFocus,roomsFocus)){filteredOut++;ignore('SEARCH_ROW_FILTER_MISMATCH');return;}
-  const bathroomWasMissing=listing.bathrooms==null;
-  const normalized:Listing=bathroomWasMissing?{...listing,bathrooms:1}:listing;
+  // SS.com does not reliably expose bathroom counts. Keep a one-bath internal
+  // fallback for schema compatibility, but never use its confidence in status.
+  const normalized:Listing=listing.bathrooms==null?{...listing,bathrooms:1}:listing;
   const {changeType,record}=await updateHistory(store,normalized,input.dryRun??false);
-  evaluatedListings.push(Object.assign(normalized,{changeType,firstSeenAt:record.firstSeenAt,isNew:changeType==='NEW',_changeType:changeType,_firstSeenAt:record.firstSeenAt,_bathroomWasMissing:bathroomWasMissing}));
+  evaluatedListings.push(Object.assign(normalized,{changeType,firstSeenAt:record.firstSeenAt,isNew:changeType==='NEW',_changeType:changeType,_firstSeenAt:record.firstSeenAt}));
   listingHistory.set(normalized.listingId,record);
 }
 function matchesFocus(listing:Listing,seriesFocus?:string,roomsFocus?:string){
@@ -69,12 +70,11 @@ await crawler.run();
 const sheetsSync=await syncAndUnderwrite(evaluatedListings,input.minProfit??7000); const analyses=sheetsSync.analyses;
 let notificationsSent=0; const statusCounts:Record<string,number>={};
 for (const listing of evaluatedListings) {
-  const internal=listing as Listing & {_changeType:string;_firstSeenAt:string;_bathroomWasMissing:boolean};
+  const internal=listing as Listing & {_changeType:string;_firstSeenAt:string};
   const analysis=analyses.get(listing.listingId); const riskFlags=analysis?.riskFlags??['DEAL_ANALYSIS_PENDING_SHEET_SYNC'];
-  if(internal._bathroomWasMissing&&!riskFlags.includes('LOW_CONFIDENCE_BATHROOM_COUNT')) riskFlags.push('LOW_CONFIDENCE_BATHROOM_COUNT');
   const output={...listing,firstSeenAt:internal._firstSeenAt,isNew:internal._changeType==='NEW',changeType:internal._changeType,
     ...(analysis??{status:'UNCERTAIN',confidence:'LOW'}),riskFlags,minProfitEur:input.minProfit??7000};
-  delete (output as Record<string,unknown>)._changeType; delete (output as Record<string,unknown>)._firstSeenAt; delete (output as Record<string,unknown>)._bathroomWasMissing;
+  delete (output as Record<string,unknown>)._changeType; delete (output as Record<string,unknown>)._firstSeenAt;
   const record=listingHistory.get(listing.listingId)!; const statusChanged=Boolean(analysis&&record.lastStatus&&record.lastStatus!==analysis.status);
   const finalStatus=analysis?.status??'UNCERTAIN'; statusCounts[finalStatus]=(statusCounts[finalStatus]??0)+1;
   const actionable=analysis?.status==='PASS'||analysis?.status==='REVIEW';
