@@ -34,7 +34,9 @@ export async function syncAndUnderwrite(listings: Listing[], minProfitEur: numbe
     if (!response.ok) throw new Error(`Sheets bridge returned HTTP ${response.status}`);
     const body = await response.json() as { ok?: boolean; results?: UnderwritingResult[]; sheetsRowsWritten?:number; error?: string };
     if (!body.ok || !Array.isArray(body.results)) throw new Error(body.error || 'Invalid Sheets bridge response');
-    return {analyses:new Map(body.results.map((result) => [result.listingId, result])),sheetsRowsWritten:Number(body.sheetsRowsWritten??0)};
+    const analyses=new Map(body.results.map((result) => [result.listingId, result]));
+    const inferredWrites=body.results.filter((result)=>result.status==='PASS'||(result.status==='REVIEW'&&result.importantReview)).length;
+    return {analyses,sheetsRowsWritten:Number(body.sheetsRowsWritten??inferredWrites)};
   } catch (error) {
     log.error('Google Sheets underwriting bridge failed', { message: error instanceof Error ? error.message : String(error) });
     return {analyses:new Map(),sheetsRowsWritten:0};
