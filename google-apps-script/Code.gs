@@ -1,5 +1,6 @@
 const CANDIDATES_SHEET = 'Deal_Analysis';
 const COMPS_SHEET = 'ARV_Comps';
+const APPRAISAL_SHEET = 'Best_Deals';
 const RENO_SHEET = 'Renovation_Costs_v2';
 const COSTS_SHEET = 'Other_Costs';
 const FILTERS_SHEET = 'Deal_Filters';
@@ -38,19 +39,26 @@ function loadActiveSearchUrls_(){
 function loadConfig_() {
   const ss=SpreadsheetApp.getActive();
   const comps=ss.getSheetByName(COMPS_SHEET).getRange(5,1,Math.max(1,ss.getSheetByName(COMPS_SHEET).getLastRow()-4),18).getValues();
+  const appraisals=ss.getSheetByName(APPRAISAL_SHEET).getRange(5,1,Math.max(1,ss.getSheetByName(APPRAISAL_SHEET).getLastRow()-4),15).getValues();
   const reno=ss.getSheetByName(RENO_SHEET).getRange(5,1,Math.max(1,ss.getSheetByName(RENO_SHEET).getLastRow()-4),24).getValues();
   const costs=ss.getSheetByName(COSTS_SHEET).getRange(5,1,Math.max(1,ss.getSheetByName(COSTS_SHEET).getLastRow()-4),5).getValues();
   const filters=ss.getSheetByName(FILTERS_SHEET).getRange(5,1,Math.max(1,ss.getSheetByName(FILTERS_SHEET).getLastRow()-4),17).getValues();
   const overrides=ss.getSheetByName('Listing_Overrides').getRange(5,1,Math.max(1,ss.getSheetByName('Listing_Overrides').getLastRow()-4),9).getValues();
-  return {comps:comps,reno:reno,costs:costs,filters:filters,overrides:overrides};
+  return {comps:comps,appraisals:appraisals,reno:reno,costs:costs,filters:filters,overrides:overrides};
 }
 
 function underwrite_(l,cfg,minProfit) {
   const flags=[];
   const comparable=cfg.comps.filter(r=>String(r[16]).toLowerCase()==='yes'&&String(r[9]).toLowerCase().indexOf('verified')>=0&&
     norm_(r[1])===norm_(l.district)&&norm_(r[3])===norm_(l.series)&&Number(r[4])===Number(l.rooms)&&Number(r[10])>0);
-  const prices=comparable.map(r=>Number(r[10])).sort((a,b)=>a-b); const compCount=prices.length;
-  const conservative=compCount?prices[0]:null; const base=compCount?prices.reduce((a,b)=>a+b,0)/compCount:null; const stretch=base==null?null:base*1.1;
+  // Best_Deals is the appraisal baseline derived from verified ARV_Comps. Bathroom is intentionally
+  // excluded from matching; when multiple bathroom groups exist, combine them by verified comp count.
+  const appraisalRows=(cfg.appraisals||[]).filter(r=>norm_(r[0])===norm_(l.district)&&norm_(r[1])===norm_(l.series)&&Number(r[2])===Number(l.rooms)&&Number(r[4])>0&&Number(r[6])>0);
+  const summaryCompCount=appraisalRows.reduce((sum,r)=>sum+Number(r[4]||0),0);
+  const summaryBase=summaryCompCount?appraisalRows.reduce((sum,r)=>sum+Number(r[6])*Number(r[4]),0)/summaryCompCount:null;
+  const prices=comparable.map(r=>Number(r[10])).sort((a,b)=>a-b); const compCount=summaryCompCount||prices.length;
+  const conservative=appraisalRows.length?Math.min.apply(null,appraisalRows.map(r=>Number(r[8])||Number(r[6]))):(prices.length?prices[0]:null);
+  const base=summaryBase!=null?summaryBase:(prices.length?prices.reduce((a,b)=>a+b,0)/prices.length:null); const stretch=base==null?null:base*1.1;
   const manualOverride=manualArvOverride_(l.listingId,cfg.overrides); const underwritingArv=manualOverride==null?base:manualOverride;
   // Bathroom count is unreliable on SS.com and must not affect qualification.
   // Prefer the one-bath baseline, then any rooms+area profile as a fallback.
@@ -67,9 +75,9 @@ function underwrite_(l,cfg,minProfit) {
   if(base==null||reno==null||!l.priceEur){status='FAIL';flags.push('MISSING_UNDERWRITING_DATA');}
   else if(filter===false){status='FAIL';flags.push('FILTER_REJECT');}
   else if(compCount>=3&&profit>=effectiveMinProfit&&(roi==null||roi>=effectiveMinRoi)) status='PASS';
-  else if(profit>=REVIEW_MIN_PROFIT_EUR&&compCount>=2&&roi>=0.10){status='REVIEW';importantReview=true;}
-  const confidence=compCount>=3&&reno!=null?'HIGH':compCount>=2&&reno!=null?'MEDIUM':'LOW';
-  const evidence=compCount?`${compCount} verified renovated sales; range €${Math.round(prices[0])}–€${Math.round(prices[prices.length-1])}; average €${Math.round(base)}`:'No exact verified renovated sales for district + series + rooms';
+  else if(profit>=REVIEW_MIN_PROFIT_EUR&&compCount>=1&&roi>=0.10){status='REVIEW';importantReview=true;}
+  const confidence=compCount>=3&&reno!=null?'HIGH':compCount>=1&&reno!=null?'MEDIUM':'LOW';
+  const evidence=compCount?`${compCount} verified renovated sale${compCount===1?'':'s'}; appraisal baseline €${Math.round(base)}`:'No verified appraisal baseline for district + series + rooms';
   return {listingId:l.listingId,status:status,importantReview:importantReview,renovationCostEur:round_(reno),otherCostsEur:round_(other),totalProjectCostEur:round_(total),conservativeArvEur:round_(conservative),baseArvPerM2:base==null||!l.areaM2?null:round_(base/Number(l.areaM2)),baseArvEur:round_(base),manualArvOverrideEur:round_(manualOverride),underwritingArvEur:round_(underwritingArv),stretchArvEur:round_(stretch),expectedProfitEur:round_(profit),roi:roi,profitMargin:margin,maximumOfferEur:round_(maxOffer),compCount:compCount,confidence:confidence,riskFlags:flags,comparableEvidence:evidence};
 }
 

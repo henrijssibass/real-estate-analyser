@@ -1,6 +1,6 @@
 # Google Sheets bridge deployment
 
-This script must be **bound to** the existing Apartment Deal Finder spreadsheet. It reads the live `ARV_Comps`, `Renovation_Costs_v2`, and `Other_Costs` tabs, underwrites listings before any write, and writes only actionable PASS/REVIEW candidates to `Deal_Analysis`. REVIEW starts at EUR 4,000 estimated profit; PASS starts at the configured minimum profit (EUR 7,000 by default) and also requires the other confidence/filter criteria. Bathroom count is excluded from comparable matching and deal qualification. FAIL and incomplete raw listings remain only in Apify history and are never written to Sheets.
+This script must be **bound to** the existing Apartment Deal Finder spreadsheet. It reads the live `ARV_Comps`, the `Best_Deals` appraisal baseline derived from those verified comps, `Renovation_Costs_v2`, and `Other_Costs`, underwrites listings before any write, and writes only actionable PASS/REVIEW candidates to `Deal_Analysis`. REVIEW starts at EUR 4,000 estimated profit and may use one verified appraisal baseline when ROI is at least 10%; PASS starts at the configured minimum profit (EUR 7,000 by default) and requires at least three verified comps plus the other filter criteria. Bathroom count is excluded from comparable matching and deal qualification. FAIL and incomplete raw listings remain only in Apify history and are never written to Sheets.
 
 1. In the spreadsheet, open **Extensions → Apps Script**.
 2. Replace `Code.gs` with the repository's `google-apps-script/Code.gs` and save.
