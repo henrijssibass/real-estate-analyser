@@ -30,11 +30,13 @@ export interface SeenRecord {
 export type DealStatus = 'PASS'|'REVIEW'|'FAIL'|'UNCERTAIN';
 export interface UnderwritingResult {
   listingId: string; status: DealStatus; importantReview: boolean;
+  renovationCostBeforeContingencyEur: number | null; renovationContingencyPct: number | null;
   renovationCostEur: number | null; otherCostsEur: number | null;
   totalProjectCostEur: number | null; conservativeArvEur: number | null;
   baseArvPerM2: number | null; baseArvEur: number | null;
   manualArvOverrideEur: number | null; underwritingArvEur: number | null; stretchArvEur: number | null;
-  expectedProfitEur: number | null; roi: number | null; profitMargin: number | null;
+  expectedProfitEur: number | null; expectedProfitLowEur: number | null; expectedProfitHighEur: number | null;
+  roi: number | null; profitMargin: number | null;
   maximumOfferEur: number | null; compCount: number; confidence: 'HIGH'|'MEDIUM'|'LOW';
   riskFlags: string[]; comparableEvidence: string;
 }

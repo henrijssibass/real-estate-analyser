@@ -64,11 +64,19 @@ function underwrite_(l,cfg,minProfit) {
   // Prefer the one-bath baseline, then any rooms+area profile as a fallback.
   const renoRows=cfg.reno.filter(r=>Number(r[1])===Number(l.rooms)&&Number(l.areaM2)>=Number(r[3])&&Number(l.areaM2)<=Number(r[4]));
   const renoRow=renoRows.find(r=>Number(r[2]||1)===1)||renoRows[0];
-  const reno=renoRow?(Number(l.areaM2)*Number(renoRow[9]||0)+[11,12,13,14,18].reduce((s,i)=>s+Number(renoRow[i]||0),0))*(1+Number(renoRow[21]||0)):null;
+  const coreRate=renoRow?Number(renoRow[9]||0):null;
+  const fixedReno=renoRow?[11,12,13,14,18].reduce((s,i)=>s+Number(renoRow[i]||0),0):null;
+  const contingencyPct=renoRow?Number(renoRow[21]||0):null;
+  const renoBefore=renoRow?Number(l.areaM2)*coreRate+fixedReno:null;
+  const reno=renoBefore==null?null:renoBefore*(1+contingencyPct);
   const purchasePct=sumCost_(cfg.costs,'% of purchase'),salePct=sumCost_(cfg.costs,'% of sale'),fixed=sumCost_(cfg.costs,'Fixed €'),monthly=sumCost_(cfg.costs,'Monthly €');
   // Until a per-listing holding period is configured, include one month of configured holding costs.
-  const other=underwritingArv==null?null:Number(l.priceEur||0)*purchasePct+underwritingArv*salePct+fixed+monthly; const total=reno==null||other==null?null:Number(l.priceEur||0)+reno+other;
-  const profit=underwritingArv==null||total==null?null:underwritingArv-total; const roi=profit==null||!total?null:profit/total; const margin=profit==null||!underwritingArv?null:profit/underwritingArv;
+  const other=underwritingArv==null?null:Number(l.priceEur||0)*purchasePct+underwritingArv*salePct+fixed+monthly;
+  const total=reno==null||other==null?null:Number(l.priceEur||0)+reno+other;
+  const totalBefore=renoBefore==null||other==null?null:Number(l.priceEur||0)+renoBefore+other;
+  const profit=underwritingArv==null||total==null?null:underwritingArv-total;
+  const profitHigh=underwritingArv==null||totalBefore==null?null:underwritingArv-totalBefore;
+  const roi=profit==null||!total?null:profit/total; const margin=profit==null||!underwritingArv?null:profit/underwritingArv;
   const filter=matchFilter_(l,cfg.filters); const effectiveMinProfit=filter&&Number(filter[11])>0?Number(filter[11]):minProfit; const effectiveMinRoi=filter&&Number(filter[12])>0?Number(filter[12]):0;
   const maxOffer=underwritingArv==null||reno==null?null:(underwritingArv*(1-salePct)-reno-fixed-effectiveMinProfit)/(1+purchasePct);
   if(compCount<3) flags.push('FEW_ARV_COMPS'); if(reno==null) flags.push('RENOVATION_PROFILE_MISSING'); if(l.floor===1) flags.push('FIRST_FLOOR'); if(l.floor&&l.totalFloors&&l.floor===l.totalFloors) flags.push('TOP_FLOOR');
@@ -79,7 +87,7 @@ function underwrite_(l,cfg,minProfit) {
   else if(profit>=REVIEW_MIN_PROFIT_EUR&&compCount>=1&&roi>=0.10){status='REVIEW';importantReview=true;}
   const confidence=compCount>=3&&reno!=null?'HIGH':compCount>=1&&reno!=null?'MEDIUM':'LOW';
   const evidence=compCount?`${compCount} verified renovated sale${compCount===1?'':'s'}; appraisal baseline €${Math.round(base)}`:'No verified appraisal baseline for district + series + rooms';
-  return {listingId:l.listingId,status:status,importantReview:importantReview,renovationCostEur:round_(reno),otherCostsEur:round_(other),totalProjectCostEur:round_(total),conservativeArvEur:round_(conservative),baseArvPerM2:base==null||!l.areaM2?null:round_(base/Number(l.areaM2)),baseArvEur:round_(base),manualArvOverrideEur:round_(manualOverride),underwritingArvEur:round_(underwritingArv),stretchArvEur:round_(stretch),expectedProfitEur:round_(profit),roi:roi,profitMargin:margin,maximumOfferEur:round_(maxOffer),compCount:compCount,confidence:confidence,riskFlags:flags,comparableEvidence:evidence};
+  return {listingId:l.listingId,status:status,importantReview:importantReview,renovationCoreRatePerM2:round_(coreRate),renovationFixedEur:round_(fixedReno),renovationCostBeforeContingencyEur:round_(renoBefore),renovationContingencyPct:contingencyPct,renovationCostEur:round_(reno),otherCostsEur:round_(other),totalProjectCostBeforeContingencyEur:round_(totalBefore),totalProjectCostEur:round_(total),conservativeArvEur:round_(conservative),baseArvPerM2:base==null||!l.areaM2?null:round_(base/Number(l.areaM2)),baseArvEur:round_(base),manualArvOverrideEur:round_(manualOverride),underwritingArvEur:round_(underwritingArv),stretchArvEur:round_(stretch),expectedProfitEur:round_(profit),expectedProfitLowEur:round_(profit),expectedProfitHighEur:round_(profitHigh),roi:roi,profitMargin:margin,maximumOfferEur:round_(maxOffer),compCount:compCount,confidence:confidence,riskFlags:flags,comparableEvidence:evidence};
 }
 
 function isActionable_(result){return result.status==='PASS'||(result.status==='REVIEW'&&result.importantReview===true);}
@@ -97,7 +105,7 @@ function upsertCandidate_(l,r,cfg) {
   const sh=SpreadsheetApp.getActive().getSheetByName(CANDIDATES_SHEET); const last=Math.max(4,sh.getLastRow());
   const ids=last>=5?sh.getRange(5,1,last-4,1).getDisplayValues().flat():[]; const found=ids.indexOf(String(l.listingId)); const row=found>=0?found+5:last+1;
   const filter=matchFilter_(l,cfg.filters); const filterRow=filter&&filter!==false?cfg.filters.indexOf(filter)+5:''; const manual=r.manualArvOverrideEur;
-  const values=[[l.listingId,l.district,l.address,l.series,l.rooms,'',l.areaM2,l.floor,l.totalFloors,l.priceEur,l.pricePerM2,filterRow,filter===false?'FILTER REJECT':filter?'MATCHED':'AUTO','','','','',r.renovationCostEur,r.otherCostsEur,r.compCount,r.baseArvPerM2,r.baseArvEur,'','',manual,r.underwritingArvEur,r.totalProjectCostEur,r.expectedProfitEur,r.roi,r.status,(r.riskFlags||[]).join('; '),l.url]];
+  const values=[[l.listingId,l.district,l.address,l.series,l.rooms,'',l.areaM2,l.floor,l.totalFloors,l.priceEur,l.pricePerM2,filterRow,filter===false?'FILTER REJECT':filter?'MATCHED':'AUTO',r.renovationCoreRatePerM2,r.renovationFixedEur,r.renovationCostBeforeContingencyEur,r.renovationContingencyPct,r.renovationCostEur,r.otherCostsEur,r.compCount,r.baseArvPerM2,r.baseArvEur,r.expectedProfitLowEur,r.expectedProfitHighEur,manual,r.underwritingArvEur,r.totalProjectCostEur,r.expectedProfitEur,r.roi,r.status,(r.riskFlags||[]).join('; '),l.url]];
   sh.getRange(row,1,1,32).setValues(values);
 }
 function sumCost_(rows,type){return rows.filter(r=>String(r[1])===type).reduce((s,r)=>{const value=Number(r[2]);return s+(isFinite(value)?value:0);},0);}

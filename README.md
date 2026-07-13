@@ -20,8 +20,10 @@ The Actor does not authenticate, solve CAPTCHAs, rotate identities to evade bloc
 
 When `GOOGLE_SHEETS_WEBHOOK_URL` and `GOOGLE_SHEETS_WEBHOOK_SECRET` are configured, the Actor sends scraped listings to the bound Apps Script bridge for live workbook underwriting and receives PASS / REVIEW / FAIL results. Without that bridge, changed listings remain `UNCERTAIN` with `DEAL_ANALYSIS_PENDING_SHEET_SYNC`.
 
-When SS.com does not publish a bathroom count, the Actor uses `bathrooms: 1` and emits the `LOW_CONFIDENCE_BATHROOM_COUNT` risk flag. A later Sheet override may replace that assumption.
+When SS.com does not publish a bathroom count, the Actor keeps a one-bath internal fallback for schema compatibility. Bathroom count does not affect comparable matching or deal qualification.
 
 Telegram uses only the encrypted Apify variables `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. Notifications are sent for PASS and important REVIEW results only. The named history store retains the last notification fingerprint (`listing ID + price + status`) to prevent repeated two-hour alerts.
+
+Deal alerts show the status, floor, renovation before/after contingency, Base ARV, conservative-to-upside profit range, conservative ROI, and listing link. Every non-dry run also sends a concise run summary with discovery, incremental, deal, runtime, and near-final Apify cost counters.
 
 See `google-apps-script/README.md` for the credential-free Google Sheets bridge deployment.

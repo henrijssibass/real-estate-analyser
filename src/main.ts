@@ -86,8 +86,23 @@ for (const listing of evaluatedListings) {
 }
 for(const listing of evaluatedListings){const analysis=analyses.get(listing.listingId);if(!analysis){ignore('UNDERWRITING_UNAVAILABLE');continue;}if(analysis.status==='FAIL'||analysis.status==='UNCERTAIN'){const reasons=analysis.riskFlags.length?analysis.riskFlags:['PROFIT_OR_ROI_BELOW_THRESHOLD'];for(const reason of reasons)ignore(reason);}}
 const pass=statusCounts.PASS??0,review=statusCounts.REVIEW??0,analysisIgnored=(statusCounts.FAIL??0)+(statusCounts.UNCERTAIN??0)+filteredOut;
-let heartbeatSent=false; if(!input.dryRun&&input.sendSummaryHeartbeat&&pass===0&&review===0){heartbeatSent=await sendTelegramSummary({activeUrlsChecked:checkedSearchUrls.size,totalListingsDiscovered:discovered,skippedOldListings,evaluated:evaluatedListings.length,pass,review});if(heartbeatSent)notificationsSent++;}
+const dealNotificationsSent=notificationsSent;
+const runtimeSecondsBeforeSummary=Math.round((Date.now()-startedAt)/1000);
+const estimatedCostUsd=await getCurrentRunCostUsd();
+let summarySent=false;
+if(!input.dryRun){summarySent=await sendTelegramSummary({runMode,activeUrlsConfigured:searchUrls.length,activeUrlsChecked:checkedSearchUrls.size,totalListingsDiscovered:discovered,newListings,changedListings,skippedOldListings,evaluated:evaluatedListings.length,ignored:analysisIgnored,pass,review,dealNotificationsSent,runtimeSeconds:runtimeSecondsBeforeSummary,estimatedCostUsd});if(summarySent)notificationsSent++;}
 const runSummary={finishedAt:new Date().toISOString(),runMode,activeUrlsConfigured:searchUrls.length,activeUrlsChecked:checkedSearchUrls.size,totalListingsDiscovered:discovered,newListings,changedListings,skippedOldListings,
-  evaluated:evaluatedListings.length,pass,review,ignored:analysisIgnored,ignoredReasons,sheetsRowsWritten:sheetsSync.sheetsRowsWritten,notificationsSent,heartbeatSent,runtimeMs:Date.now()-startedAt,runtimeSeconds:Math.round((Date.now()-startedAt)/1000),maxListings,dryRun:input.dryRun??false,sheetsConnected:analyses.size>0,statusCounts};
+  evaluated:evaluatedListings.length,pass,review,ignored:analysisIgnored,ignoredReasons,sheetsRowsWritten:sheetsSync.sheetsRowsWritten,dealNotificationsSent,notificationsSent,summarySent,estimatedCostUsd,runtimeMs:Date.now()-startedAt,runtimeSeconds:Math.round((Date.now()-startedAt)/1000),maxListings,dryRun:input.dryRun??false,sheetsConnected:analyses.size>0,statusCounts};
 log.info('RUN_SUMMARY',runSummary); await Actor.setValue('RUN_SUMMARY',runSummary);
 await Actor.exit();
+
+async function getCurrentRunCostUsd():Promise<number|null>{
+  const runId=process.env.ACTOR_RUN_ID,token=process.env.APIFY_TOKEN,base=process.env.APIFY_API_PUBLIC_BASE_URL??'https://api.apify.com';
+  if(!runId||!token||process.env.APIFY_IS_AT_HOME!=='1')return null;
+  try{
+    const response=await fetch(`${base.replace(/\/$/,'')}/v2/actor-runs/${runId}`,{headers:{authorization:`Bearer ${token}`}});
+    if(!response.ok)return null;
+    const body=await response.json() as {data?:{usageTotalUsd?:number}};
+    const value=Number(body.data?.usageTotalUsd);return Number.isFinite(value)?value:null;
+  }catch(error){log.warning('Apify cost estimate unavailable',{message:error instanceof Error?error.message:String(error)});return null;}
+}
