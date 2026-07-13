@@ -5,6 +5,7 @@ import { enrichFromDetail, nextPaginationUrl, parseSearchRows } from './parse.js
 import { compactSeenRecord, hasImportantSearchChange, type ChangeType } from './history.js';
 import { loadActiveSearchUrls, syncAndUnderwrite, type SheetsSyncResult } from './sheets.js';
 import { notificationFingerprint, sendTelegram, sendTelegramSummary, shouldNotify } from './telegram.js';
+import { calendarDateInTimeZone, shouldSendSummary } from './summary-policy.js';
 
 await Actor.init();
 const startedAt = Date.now();
@@ -241,13 +242,20 @@ const dealNotificationsSent = notificationsSent;
 const runtimeSecondsBeforeSummary = Math.round((Date.now() - startedAt) / 1000);
 const usageTotalUsd = await getCurrentRunCostUsd();
 let summarySent = false;
-if (!dryRun) {
+const summaryFrequency = input.summaryFrequency ?? 'DAILY';
+const summaryDate = calendarDateInTimeZone(new Date());
+const summaryState = await store.getValue<{lastSentDate?:string}>('TELEGRAM_SUMMARY_STATE');
+const summaryDue = !dryRun && shouldSendSummary(summaryFrequency, summaryDate, summaryState?.lastSentDate);
+if (summaryDue) {
   telegramRequests++;
   summarySent = await sendTelegramSummary({runMode, activeUrlsConfigured:searchUrls.length, activeUrlsChecked:checkedSearchUrls.size,
     totalListingsDiscovered, newListings, changedListings, skippedOldListings, evaluated:evaluatedListings.length,
     ignored:analysisIgnored, pass, review, dealNotificationsSent, runtimeSeconds:runtimeSecondsBeforeSummary,
     estimatedCostUsd:usageTotalUsd, searchPageRequests, detailPageRequests, sheetsRequests});
-  if (summarySent) notificationsSent++;
+  if (summarySent) {
+    notificationsSent++;
+    await store.setValue('TELEGRAM_SUMMARY_STATE', {lastSentDate:summaryDate, lastSentAt:new Date().toISOString()});
+  }
 }
 sampleMemory();
 
@@ -261,7 +269,7 @@ const runSummary = {
   memoryMb:configuredMemoryMb, peakMemoryMb, usageTotalUsd, estimatedCostUsd:usageTotalUsd,
   maxListings:candidateLimit, maxConcurrency:concurrency, requestDelaySecs:delayMs / 1000,
   historyIndexEntries:Object.keys(historyIndex).length, historyMigrationReads, forcedNewListings,
-  dryRun, sheetsConnected:analyses.size > 0, statusCounts,
+  summaryFrequency, summaryDue, summaryDate, dryRun, sheetsConnected:analyses.size > 0, statusCounts,
 };
 log.info('RUN_SUMMARY', runSummary);
 await Actor.setValue('RUN_SUMMARY', runSummary);

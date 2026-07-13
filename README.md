@@ -28,7 +28,7 @@ Deal alerts show the status, floor, renovation before/after contingency, Base AR
 
 ## Incremental cost controls
 
-Scheduled `INCREMENTAL` runs use 256 MB, at most four concurrent Cheerio requests, and a 0.2-second handler delay. They check page 1 of every configured search, compare the row ID/URL/price against one compact history index, and request detail pages only for new or materially changed rows. Pagination advances one page at a time only while the current page contains changes. A zero-change run skips Sheets, underwriting, detail pages, and Dataset output; it sends only the requested Telegram heartbeat.
+Scheduled `INCREMENTAL` runs use 256 MB, at most four concurrent Cheerio requests, and a 0.2-second handler delay. They check page 1 of every configured search, compare the row ID/URL/price against one compact history index, and request detail pages only for new or materially changed rows. Pagination advances one page at a time only while the current page contains changes. A zero-change run skips Sheets, underwriting, detail pages, and Dataset output. PASS/REVIEW alerts remain immediate, while the run summary is throttled to once per Europe/Riga calendar day by default.
 
 `FULL_SCAN` remains separately capped at 1,000 candidates and may use the configured longer delay. `RUN_SUMMARY` includes search/detail/Sheets/Telegram request counts, configured and peak memory, runtime, and current `usageTotalUsd`.
 

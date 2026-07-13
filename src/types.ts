@@ -9,6 +9,7 @@ export interface ActorInput {
   requestDelaySecs?: number;
   runMode?: 'FULL_SCAN'|'INCREMENTAL';
   sendSummaryHeartbeat?: boolean;
+  summaryFrequency?: 'EVERY_RUN'|'DAILY'|'NEVER';
   diagnosticForceNewListings?: number;
 }
 export interface Listing {

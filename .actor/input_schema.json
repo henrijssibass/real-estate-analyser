@@ -17,7 +17,8 @@
     "maxConcurrency": { "title": "Maximum concurrency", "description": "INCREMENTAL uses at most four simultaneous HTTP requests. FULL_SCAN remains capped at five.", "type": "integer", "default": 4, "minimum": 1, "maximum": 5 },
     "requestDelaySecs": { "title": "Delay between requests (seconds)", "description": "INCREMENTAL is capped at 0.2 seconds; retries still use Crawlee backoff. FULL_SCAN uses this configured delay.", "type": "number", "default": 0.2, "minimum": 0.2, "maximum": 30 }
     ,"runMode": {"title":"Run mode","description":"FULL_SCAN evaluates every current listing without deleting history. INCREMENTAL evaluates only new or materially changed listings.","type":"string","editor":"select","default":"INCREMENTAL","enum":["INCREMENTAL","FULL_SCAN"],"enumTitles":["Incremental","Full scan"]}
-    ,"sendSummaryHeartbeat": {"title":"Send Telegram run summary","description":"Deprecated compatibility option. A concise Telegram summary is now sent after every non-dry run.","type":"boolean","default":true}
+    ,"sendSummaryHeartbeat": {"title":"Legacy summary toggle","description":"Deprecated compatibility option. Use Summary frequency instead.","type":"boolean","default":true}
+    ,"summaryFrequency": {"title":"Summary frequency","description":"Deal alerts remain immediate. DAILY sends at most one run summary per Europe/Riga calendar day.","type":"string","editor":"select","default":"DAILY","enum":["DAILY","EVERY_RUN","NEVER"],"enumTitles":["Once daily","Every run","Never"]}
     ,"diagnosticForceNewListings": {"title":"Diagnostic forced listings","description":"Testing only: re-evaluate up to 20 unchanged listings without clearing or damaging persistent history.","type":"integer","default":0,"minimum":0,"maximum":20}
   }
 }
