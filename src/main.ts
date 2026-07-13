@@ -1,5 +1,5 @@
 import { Actor, log } from 'apify';
-import { CheerioCrawler, RequestQueue, sleep } from 'crawlee';
+import { CheerioCrawler, RequestQueue, RobotsTxtFile, sleep } from 'crawlee';
 import type { ActorInput, Listing, SeenRecord, SearchInput, UnderwritingResult } from './types.js';
 import { enrichFromDetail, nextPaginationUrl, parseSearchRows } from './parse.js';
 import { compactSeenRecord, hasImportantSearchChange, type ChangeType } from './history.js';
@@ -36,6 +36,8 @@ const sampleMemory = () => { peakMemoryMb = Math.max(peakMemoryMb, Math.ceil(pro
 
 const queue = await RequestQueue.open();
 const allowedHosts = new Set(['www.ss.com', 'ss.com', 'www.ss.lv', 'ss.lv']);
+const robotsTimeoutMs = fullScan ? 15_000 : 5_000;
+const robotsFiles = new Map<string, Promise<RobotsTxtFile>>();
 const historyIndex = (await store.getValue<Record<string, SeenRecord>>('HISTORY_INDEX')) ?? {};
 let historyMigrationReads = 0;
 let historyDirty = false;
@@ -49,6 +51,10 @@ let forcedNewListings = 0;
 let searchPageRequests = 0;
 let detailPageRequests = 0;
 let telegramRequests = 0;
+let failedRequests = 0;
+let failedSearchRequests = 0;
+let successfulSearchRequests = 0;
+let sourceUnavailable = false;
 const ignoredReasons: Record<string, number> = {};
 const ignore = (reason: string) => { ignoredReasons[reason] = (ignoredReasons[reason] ?? 0) + 1; };
 const runSeenKeys = new Set<string>();
@@ -58,6 +64,62 @@ const listingHistory = new Map<string, SeenRecord>();
 const pendingPrevious = new Map<string, SeenRecord | undefined>();
 const pendingChangeType = new Map<string, ChangeType>();
 
+function robotsFor(url: string): Promise<RobotsTxtFile> {
+  const parsed = new URL(url);
+  const origin = parsed.origin;
+  let pending = robotsFiles.get(origin);
+  if (!pending) {
+    const robotsUrl = new URL('/robots.txt', origin).toString();
+    pending = (async () => {
+      const response = await fetch(robotsUrl, {signal:AbortSignal.timeout(robotsTimeoutMs)});
+      if (response.status === 404) return RobotsTxtFile.from(robotsUrl, '');
+      if (!response.ok) throw new Error(`robots.txt returned HTTP ${response.status}`);
+      return RobotsTxtFile.from(robotsUrl, await response.text());
+    })();
+    robotsFiles.set(origin, pending);
+  }
+  return pending;
+}
+
+async function isAllowedByRobots(url: string): Promise<boolean> {
+  return (await robotsFor(url)).isAllowed(url, '*');
+}
+
+// Validate configured URLs before making even the robots.txt preflight request.
+for (const item of searchUrls) {
+  const url = typeof item === 'string' ? item : item.url;
+  const parsed = new URL(url);
+  if (!allowedHosts.has(parsed.hostname) || !/\/real-estate\/flats\/.+\/sell\//.test(parsed.pathname)) {
+    throw new Error(`Unsupported search URL: ${url}`);
+  }
+}
+
+// Fetch robots.txt once with a strict timeout before dispatching any crawl work.
+// Crawlee's built-in robots lookup has a much longer network timeout and caused
+// outage runs to idle for 15+ minutes. We still enforce the same robots rules,
+// but abort cheaply and safely when the policy cannot be verified.
+try {
+  await Promise.all([...new Set(searchUrls.map((item) => new URL(typeof item === 'string' ? item : item.url).origin))]
+    .map((origin) => robotsFor(origin)));
+} catch (error) {
+  sourceUnavailable = true;
+  const message = error instanceof Error ? error.message : String(error);
+  const runtimeSeconds = Math.round((Date.now() - startedAt) / 1000);
+  const usageTotalUsd = await getCurrentRunCostUsd();
+  const outageSummary = {
+    finishedAt:new Date().toISOString(), runMode, activeUrlsConfigured:searchUrls.length, activeUrlsChecked:0,
+    totalListingsDiscovered:0, newListings:0, changedListings:0, skippedOldListings:0, evaluated:0,
+    pass:0, review:0, ignored:0, notificationsSent:0, sheetsRowsWritten:0,
+    searchPageRequests:0, detailPageRequests:0, sheetsRequests, telegramRequests:0,
+    failedRequests:0, failedSearchRequests:0, sourceUnavailable, sourceError:message,
+    runtimeMs:Date.now() - startedAt, runtimeSeconds, memoryMb:configuredMemoryMb, peakMemoryMb,
+    usageTotalUsd, estimatedCostUsd:usageTotalUsd, dryRun,
+  };
+  log.error('SS.com robots.txt preflight failed; ending run before crawl', {message, robotsTimeoutMs});
+  await Actor.setValue('RUN_SUMMARY', outageSummary);
+  throw new Error(`SS.com unavailable during robots.txt preflight: ${message}`);
+}
+
 for (const item of searchUrls) {
   const url = typeof item === 'string' ? item : item.url;
   const name = typeof item === 'string' ? new URL(url).pathname : (item.name || new URL(url).pathname);
@@ -66,21 +128,30 @@ for (const item of searchUrls) {
   const district = typeof item === 'string' ? decodeURIComponent(parsed.pathname.split('/').at(-3) ?? '') : (item.district || decodeURIComponent(parsed.pathname.split('/').at(-3) ?? ''));
   const seriesFocus = typeof item === 'string' ? 'All' : item.seriesFocus ?? 'All';
   const roomsFocus = typeof item === 'string' ? 'All' : item.roomsFocus ?? 'All';
-  await queue.addRequest({url, uniqueKey:`SEARCH-${url}`, userData:{label:'SEARCH', searchName:name, district, seriesFocus, roomsFocus, rootSearchUrl:url, pageNumber:1}});
+  if (await isAllowedByRobots(url)) {
+    await queue.addRequest({url, uniqueKey:`SEARCH-${url}`, userData:{label:'SEARCH', searchName:name, district, seriesFocus, roomsFocus, rootSearchUrl:url, pageNumber:1}});
+  } else {
+    ignore('ROBOTS_DISALLOWED');
+    log.warning('Search URL skipped because robots.txt disallows it', {url});
+  }
 }
 
 const crawler = new CheerioCrawler({
   requestQueue: queue,
   maxConcurrency: concurrency,
-  maxRequestRetries: 2,
-  respectRobotsTxtFile: true,
+  maxRequestRetries: fullScan ? 2 : 0,
+  // robots.txt is fetched once above with a bounded timeout and enforced before
+  // every search/detail request. Disable Crawlee's duplicate unbounded lookup.
+  respectRobotsTxtFile: false,
   additionalMimeTypes: ['text/html'],
-  requestHandlerTimeoutSecs: 45,
+  navigationTimeoutSecs: fullScan ? 30 : 8,
+  requestHandlerTimeoutSecs: fullScan ? 45 : 20,
   async requestHandler({request, $}) {
     if (delayMs > 0) await sleep(delayMs);
     sampleMemory();
     if (request.userData.label === 'SEARCH') {
       searchPageRequests++;
+      successfulSearchRequests++;
       checkedSearchUrls.add(request.userData.rootSearchUrl ?? request.url);
       const listings = parseSearchRows($, request.url, request.userData.searchName, request.userData.district, new Date().toISOString());
       let pageHasNewOrChanged = false;
@@ -137,8 +208,11 @@ const crawler = new CheerioCrawler({
         pendingPrevious.set(listing.listingId, previous);
         pendingChangeType.set(listing.listingId, changeType);
 
-        if (scrapeDetails) {
+        if (scrapeDetails && await isAllowedByRobots(listing.url)) {
           await queue.addRequest({url:listing.url, uniqueKey:`DETAIL-${listing.listingId}`, userData:{label:'DETAIL', listing}});
+        } else if (scrapeDetails) {
+          ignore('ROBOTS_DISALLOWED');
+          processListing(listing);
         } else {
           processListing(listing);
         }
@@ -147,7 +221,7 @@ const crawler = new CheerioCrawler({
       // INCREMENTAL walks one page at a time. It never fans out every pagination
       // link, and it stops as soon as a complete page is unchanged.
       const next = nextPaginationUrl($, request.url);
-      if (next && (fullScan || pageHasNewOrChanged) && (fullScan || totalListingsDiscovered < candidateLimit)) {
+      if (next && (fullScan || pageHasNewOrChanged) && (fullScan || totalListingsDiscovered < candidateLimit) && await isAllowedByRobots(next)) {
         await queue.addRequest({url:next, uniqueKey:`SEARCH-${next}`, userData:{...request.userData, pageNumber:Number(request.userData.pageNumber ?? 1) + 1}});
       } else if (!pageHasNewOrChanged && listings.length) {
         log.info('Incremental pagination stopped on unchanged page', {url:request.url, listings:listings.length});
@@ -158,9 +232,18 @@ const crawler = new CheerioCrawler({
     detailPageRequests++;
     processListing(enrichFromDetail($, request.userData.listing as Listing));
   },
-  failedRequestHandler({request}, error) {
-    if (request.userData.label === 'SEARCH') checkedSearchUrls.add(request.userData.rootSearchUrl ?? request.url);
+  async failedRequestHandler({request}, error) {
+    failedRequests++;
+    if (request.userData.label === 'SEARCH') {
+      failedSearchRequests++;
+      checkedSearchUrls.add(request.userData.rootSearchUrl ?? request.url);
+    }
     log.warning(`Request failed safely: ${request.url}`, {error:error.message});
+    if (!fullScan && successfulSearchRequests === 0 && failedSearchRequests >= 3) {
+      sourceUnavailable = true;
+      log.error('Incremental source circuit breaker opened after three initial search failures');
+      await crawler.autoscaledPool?.abort();
+    }
   },
 });
 
@@ -265,14 +348,19 @@ const runSummary = {
   evaluated:evaluatedListings.length, pass, review, ignored:analysisIgnored, ignoredReasons,
   sheetsRowsWritten:sheetsSync.sheetsRowsWritten, dealNotificationsSent, notificationsSent, summarySent,
   searchPageRequests, detailPageRequests, sheetsRequests, telegramRequests,
+  failedRequests, failedSearchRequests, successfulSearchRequests, sourceUnavailable,
   runtimeMs:Date.now() - startedAt, runtimeSeconds:Math.round((Date.now() - startedAt) / 1000),
   memoryMb:configuredMemoryMb, peakMemoryMb, usageTotalUsd, estimatedCostUsd:usageTotalUsd,
   maxListings:candidateLimit, maxConcurrency:concurrency, requestDelaySecs:delayMs / 1000,
+  maxRequestRetries:fullScan ? 2 : 0, navigationTimeoutSecs:fullScan ? 30 : 8, robotsTimeoutMs,
   historyIndexEntries:Object.keys(historyIndex).length, historyMigrationReads, forcedNewListings,
   summaryFrequency, summaryDue, summaryDate, dryRun, sheetsConnected:analyses.size > 0, statusCounts,
 };
 log.info('RUN_SUMMARY', runSummary);
 await Actor.setValue('RUN_SUMMARY', runSummary);
+if (sourceUnavailable && successfulSearchRequests === 0) {
+  throw new Error('SS.com search pages were unavailable; incremental crawl stopped by the cost-protection circuit breaker');
+}
 await Actor.exit();
 
 async function getCurrentRunCostUsd(): Promise<number | null> {
