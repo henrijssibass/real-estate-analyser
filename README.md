@@ -14,7 +14,7 @@ Run with Apify CLI or set `APIFY_INPUT` to the JSON accepted by `.actor/input_sc
 
 ## Safety
 
-The Actor does not authenticate, solve CAPTCHAs, rotate identities to evade blocks, contact sellers, or mutate source data. A blocked/CAPTCHA response is treated as a failed request. Telegram and Google Sheets are intentionally deferred to later phases; no credentials belong in source control or workbook cells.
+The Actor does not authenticate, solve CAPTCHAs, rotate identities to evade blocks, contact sellers, or mutate source data. A blocked/CAPTCHA response is treated as a failed request. Telegram and Google Sheets credentials remain encrypted Apify secrets; no credentials belong in source control or workbook cells.
 
 ## Current output
 
@@ -25,5 +25,11 @@ When SS.com does not publish a bathroom count, the Actor keeps a one-bath intern
 Telegram uses only the encrypted Apify variables `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. Notifications are sent for PASS and important REVIEW results only. The named history store retains the last notification fingerprint (`listing ID + price + status`) to prevent repeated two-hour alerts.
 
 Deal alerts show the status, floor, renovation before/after contingency, Base ARV, conservative-to-upside profit range, conservative ROI, and listing link. Every non-dry run also sends a concise run summary with discovery, incremental, deal, runtime, and near-final Apify cost counters.
+
+## Incremental cost controls
+
+Scheduled `INCREMENTAL` runs use 256 MB, at most four concurrent Cheerio requests, and a 0.2-second handler delay. They check page 1 of every configured search, compare the row ID/URL/price against one compact history index, and request detail pages only for new or materially changed rows. Pagination advances one page at a time only while the current page contains changes. A zero-change run skips Sheets, underwriting, detail pages, and Dataset output; it sends only the requested Telegram heartbeat.
+
+`FULL_SCAN` remains separately capped at 1,000 candidates and may use the configured longer delay. `RUN_SUMMARY` includes search/detail/Sheets/Telegram request counts, configured and peak memory, runtime, and current `usageTotalUsd`.
 
 See `google-apps-script/README.md` for the credential-free Google Sheets bridge deployment.
