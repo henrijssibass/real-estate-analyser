@@ -49,6 +49,18 @@ export function enrichFromDetail($: CheerioRoot, listing: Listing): Listing {
   return { ...listing, title, description, imageUrls:[...images], publishedAt, sellerType };
 }
 
-export function paginationUrls($: CheerioRoot, baseUrl: string): string[] {
-  const out = new Set<string>(); $('a[href*="/page"]').each((_i: number, el: any) => { const href=$(el).attr('href'); if (href) out.add(new URL(href, baseUrl).href); }); return [...out];
+export function nextPaginationUrl($: CheerioRoot, baseUrl: string): string | null {
+  const currentPath = new URL(baseUrl).pathname;
+  const currentPage = Number(currentPath.match(/\/page(\d+)\.html$/)?.[1] ?? 1);
+  const targetPage = currentPage + 1;
+  let next: string | null = null;
+  $('a[href*="/page"]').each((_i: number, el: any) => {
+    if (next) return;
+    const href = $(el).attr('href');
+    if (!href) return;
+    const candidate = new URL(href, baseUrl);
+    const page = Number(candidate.pathname.match(/\/page(\d+)\.html$/)?.[1] ?? 0);
+    if (page === targetPage) next = candidate.href;
+  });
+  return next;
 }

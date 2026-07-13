@@ -9,6 +9,7 @@ export interface ActorInput {
   requestDelaySecs?: number;
   runMode?: 'FULL_SCAN'|'INCREMENTAL';
   sendSummaryHeartbeat?: boolean;
+  diagnosticForceNewListings?: number;
 }
 export interface Listing {
   listingId: string; source: 'SS.com'; url: string; scrapedAt: string;

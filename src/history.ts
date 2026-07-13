@@ -10,6 +10,22 @@ export function hasImportantSearchChange(previous: SeenRecord, current: Listing)
   return comparableSearchFields.some((field)=>current[field]!==snapshot[field]);
 }
 
+export function compactSeenRecord(previous: SeenRecord | undefined, listing: Listing, changeType: ChangeType): SeenRecord {
+  const priceHistory = previous?.priceHistory ?? [{at:listing.scrapedAt,priceEur:listing.priceEur}];
+  return {
+    listingId:listing.listingId,
+    url:listing.url,
+    firstSeenAt:previous?.firstSeenAt ?? listing.scrapedAt,
+    lastSeenAt:listing.scrapedAt,
+    lastPriceEur:listing.priceEur,
+    contentHash:contentHash(listing),
+    priceHistory:changeType==='PRICE_CHANGED'?[...priceHistory,{at:listing.scrapedAt,priceEur:listing.priceEur}].slice(-50):priceHistory,
+    lastNotifiedFingerprint:previous?.lastNotifiedFingerprint,
+    lastStatus:previous?.lastStatus,
+    listingSnapshot:{...listing,description:'',imageUrls:[]},
+  };
+}
+
 export async function markSeenUnchanged(store:KeyValueStore,previous:SeenRecord,current:Listing,dryRun=false):Promise<SeenRecord>{
   const record:SeenRecord={...previous,url:current.url,lastSeenAt:current.scrapedAt,
     listingSnapshot:{...previous.listingSnapshot!,url:current.url,scrapedAt:current.scrapedAt,searchName:current.searchName,district:current.district}};

@@ -32,7 +32,7 @@ export async function sendTelegram(listing: Listing, result: UnderwritingResult)
   } catch(error) { log.error('Telegram delivery failed',{message:error instanceof Error?error.message:String(error)}); return false; }
 }
 
-export async function sendTelegramSummary(summary:{runMode:string;activeUrlsConfigured:number;activeUrlsChecked:number;totalListingsDiscovered:number;newListings:number;changedListings:number;skippedOldListings:number;evaluated:number;ignored:number;pass:number;review:number;dealNotificationsSent:number;runtimeSeconds:number;estimatedCostUsd:number|null}):Promise<boolean>{
+export async function sendTelegramSummary(summary:{runMode:string;activeUrlsConfigured:number;activeUrlsChecked:number;totalListingsDiscovered:number;newListings:number;changedListings:number;skippedOldListings:number;evaluated:number;ignored:number;pass:number;review:number;dealNotificationsSent:number;runtimeSeconds:number;estimatedCostUsd:number|null;searchPageRequests:number;detailPageRequests:number;sheetsRequests:number}):Promise<boolean>{
   const token=process.env.TELEGRAM_BOT_TOKEN; const chatId=process.env.TELEGRAM_CHAT_ID;
   if(!token||!chatId){log.warning('Telegram summary skipped: required secret variables are unavailable');return false;}
   const outcome=summary.pass+summary.review>0?`Deals found: PASS ${summary.pass}, REVIEW ${summary.review}.`:'No qualifying deals found.';
@@ -42,6 +42,7 @@ export async function sendTelegramSummary(summary:{runMode:string;activeUrlsConf
     `🔎 Listings discovered: ${summary.totalListingsDiscovered}`,
     `🆕 New: ${summary.newListings} · Changed: ${summary.changedListings} · Skipped old: ${summary.skippedOldListings}`,
     `🧮 Evaluated: ${summary.evaluated} · Ignored: ${summary.ignored}`,
+    `🌐 Requests: search ${summary.searchPageRequests} · details ${summary.detailPageRequests} · Sheets ${summary.sheetsRequests}`,
     `✅ PASS: ${summary.pass} · 🟡 REVIEW: ${summary.review}`,
     `📨 Deal alerts sent: ${summary.dealNotificationsSent}`,
     `⏱ Runtime: ${summary.runtimeSeconds}s · 💵 Cost: ${cost}`,'',outcome].join('\n');

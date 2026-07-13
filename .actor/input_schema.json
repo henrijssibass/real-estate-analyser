@@ -11,12 +11,13 @@
       "default": [{"url":"https://www.ss.lv/lv/real-estate/flats/riga/kengarags/sell/","name":"Ķengarags — all sale listings","district":"Ķengarags"}]
     },
     "minProfit": { "title": "Minimum profit (€)", "description": "Minimum expected profit used by the later deal-analysis stage.", "type": "integer", "default": 7000, "minimum": 0 },
-    "maxListingsPerRun": { "title": "Maximum listings", "description": "Hard cap on unique listings discovered during one Actor run.", "type": "integer", "default": 100, "minimum": 1, "maximum": 1000 },
+    "maxListingsPerRun": { "title": "Maximum candidates", "description": "FULL_SCAN accepts up to 1000 candidates. INCREMENTAL is always capped at 100 new or changed listings while still checking page 1 of every active URL.", "type": "integer", "default": 100, "minimum": 1, "maximum": 1000 },
     "scrapeDetails": { "title": "Scrape detail pages", "description": "Visit public listing detail pages for descriptions, images and optional metadata.", "type": "boolean", "default": true },
     "dryRun": { "title": "Dry run", "description": "Process and emit results without updating persistent seen-history records.", "type": "boolean", "default": false },
-    "maxConcurrency": { "title": "Maximum concurrency", "description": "Maximum simultaneous HTTP requests; capped at five to limit source load.", "type": "integer", "default": 2, "minimum": 1, "maximum": 5 },
-    "requestDelaySecs": { "title": "Delay between requests (seconds)", "description": "Polite delay applied by each request handler before parsing a page.", "type": "number", "default": 1.5, "minimum": 1, "maximum": 30 }
+    "maxConcurrency": { "title": "Maximum concurrency", "description": "INCREMENTAL uses at most four simultaneous HTTP requests. FULL_SCAN remains capped at five.", "type": "integer", "default": 4, "minimum": 1, "maximum": 5 },
+    "requestDelaySecs": { "title": "Delay between requests (seconds)", "description": "INCREMENTAL is capped at 0.2 seconds; retries still use Crawlee backoff. FULL_SCAN uses this configured delay.", "type": "number", "default": 0.2, "minimum": 0.2, "maximum": 30 }
     ,"runMode": {"title":"Run mode","description":"FULL_SCAN evaluates every current listing without deleting history. INCREMENTAL evaluates only new or materially changed listings.","type":"string","editor":"select","default":"INCREMENTAL","enum":["INCREMENTAL","FULL_SCAN"],"enumTitles":["Incremental","Full scan"]}
     ,"sendSummaryHeartbeat": {"title":"Send Telegram run summary","description":"Deprecated compatibility option. A concise Telegram summary is now sent after every non-dry run.","type":"boolean","default":true}
+    ,"diagnosticForceNewListings": {"title":"Diagnostic forced listings","description":"Testing only: re-evaluate up to 20 unchanged listings without clearing or damaging persistent history.","type":"integer","default":0,"minimum":0,"maximum":20}
   }
 }
