@@ -13,6 +13,22 @@ const input = (await Actor.getInput<ActorInput>()) ?? {};
 const runMode = input.runMode ?? 'INCREMENTAL';
 const fullScan = runMode === 'FULL_SCAN';
 const dryRun = input.dryRun ?? false;
+
+// Explicit operator-only preview path. It deliberately runs before opening the
+// history store, crawler, Sheets bridge, or dataset so a formatting test cannot
+// mutate production state or consume crawl requests.
+if (input.telegramPreview) {
+  const sent = await sendTelegram(input.telegramPreview.listing, input.telegramPreview.analysis);
+  const previewSummary = {
+    finishedAt:new Date().toISOString(), runMode:'TELEGRAM_PREVIEW', notificationsSent:sent?1:0,
+    sheetsRowsWritten:0, searchPageRequests:0, detailPageRequests:0,
+    runtimeMs:Date.now()-startedAt, runtimeSeconds:Math.round((Date.now()-startedAt)/1000),
+  };
+  log.info('RUN_SUMMARY', previewSummary);
+  await Actor.setValue('RUN_SUMMARY', previewSummary);
+  if (!sent) throw new Error('Telegram preview delivery failed');
+  await Actor.exit();
+}
 const store = await Actor.openKeyValueStore('SS-COM-SEEN-HISTORY');
 let sheetsRequests = 0;
 

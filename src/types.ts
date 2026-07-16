@@ -11,6 +11,8 @@ export interface ActorInput {
   sendSummaryHeartbeat?: boolean;
   summaryFrequency?: 'EVERY_RUN'|'DAILY'|'NEVER';
   diagnosticForceNewListings?: number;
+  /** One-off operator preview. Sends exactly one formatted alert and exits without scraping or storage changes. */
+  telegramPreview?: { listing: Listing; analysis: UnderwritingResult };
 }
 export interface Listing {
   listingId: string; source: 'SS.com'; url: string; scrapedAt: string;
