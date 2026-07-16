@@ -15,8 +15,9 @@ export function formatTelegramDealAlert(listing: Listing, result: UnderwritingRe
   const profitLow=result.expectedProfitLowEur??result.expectedProfitEur;
   const profitHigh=result.expectedProfitHighEur??result.expectedProfitEur;
   return [`🏠 ${result.status} — ${listing.district}, ${listing.address}`,'',`💰 Price: ${money(listing.priceEur)}`,
-    `📐 Size: ${listing.areaM2 ?? '—'} m²`,`🏢 Floor: ${floor}`,`🏗 Series: ${listing.series || '—'}`,
+    `🚪 Rooms: ${listing.rooms ?? '—'}`,`📐 Size: ${listing.areaM2 ?? '—'} m²`,`🏢 Floor: ${floor}`,`🏗 Series: ${listing.series || '—'}`,
     `🔨 Renovation: ${money(result.renovationCostBeforeContingencyEur)}–${money(result.renovationCostEur)}`,
+    `🧾 Other costs: ${money(result.otherCostsEur)}`,
     `🏦 ARV: ${money(result.underwritingArvEur)}`,`📈 Profit: ${money(profitLow)}–${money(profitHigh)}`,
     `📊 ROI: ${result.roi==null?'—':`${(result.roi*100).toFixed(1)}%`}`,'',`🔗 Link:`,listing.url].join('\n');
 }
