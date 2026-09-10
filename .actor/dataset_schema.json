@@ -1,0 +1,5 @@
+{
+  "actorSpecification": 1,
+  "fields": {},
+  "views": { "overview": { "title": "Candidates", "transformation": { "fields": ["listingId","changeType","status","priceEur","estimatedProfitEur","district","address","url"] }, "display": { "component": "table", "properties": {} } } }
+}
