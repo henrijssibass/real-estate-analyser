@@ -282,6 +282,11 @@ function matchesFocus(listing: Listing, seriesFocus?: string, roomsFocus?: strin
 }
 
 await crawler.run();
+// The default request queue is only a temporary crawl worklist. Once every
+// request has finished, dropping it prevents completed runs from retaining
+// disposable queue data. Persistent listing history lives separately in the
+// named SS-COM-SEEN-HISTORY key-value store and is never removed here.
+await queue.drop();
 sampleMemory();
 
 let sheetsSync: SheetsSyncResult = {analyses:new Map(), sheetsRowsWritten:0};
