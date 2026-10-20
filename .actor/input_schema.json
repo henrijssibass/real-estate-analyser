@@ -3,10 +3,19 @@
   "type": "object",
   "schemaVersion": 1,
   "properties": {
+    "searchUrlsSource": {
+      "title": "Search configuration source",
+      "description": "SHEET always reads every active Search_URLs row, ignoring cached or Console-default URLs. INPUT uses only the explicit URLs below.",
+      "type": "string",
+      "editor": "select",
+      "default": "SHEET",
+      "enum": ["SHEET", "INPUT"],
+      "enumTitles": ["Live Google Sheet", "Explicit input URLs"]
+    },
     "searchUrls": {
       "title": "Search URLs",
       "type": "array",
-      "description": "Fallback public SS.com apartment sale searches. When the Sheets bridge is available, active Search_URLs rows are used instead.",
+      "description": "Public SS.com apartment sale searches, used only when Search configuration source is INPUT.",
       "editor": "json",
       "default": [{"url":"https://www.ss.lv/lv/real-estate/flats/riga/kengarags/sell/","name":"Ķengarags — all sale listings","district":"Ķengarags"}]
     },

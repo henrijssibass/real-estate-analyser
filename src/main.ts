@@ -32,10 +32,10 @@ if (input.telegramPreview) {
 const store = await Actor.openKeyValueStore('SS-COM-SEEN-HISTORY');
 let sheetsRequests = 0;
 
-// Scheduled input is the zero-cost configuration cache. A Sheets lookup is only
-// needed when no URLs were supplied to the run (for example, an ad-hoc run).
+// SHEET is explicit: the Console can refill an empty array with schema defaults.
+// Never let those defaults silently narrow scheduled coverage to one district.
 let searchUrls: SearchInput[] = input.searchUrls ?? [];
-if (searchUrls.length === 0) {
+if (input.searchUrlsSource === 'SHEET' || searchUrls.length === 0) {
   sheetsRequests++;
   searchUrls = await loadActiveSearchUrls();
 }

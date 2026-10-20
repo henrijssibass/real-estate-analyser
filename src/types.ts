@@ -1,5 +1,6 @@
 export type SearchInput = string | { url: string; name?: string; district?: string; seriesFocus?: string; roomsFocus?: string };
 export interface ActorInput {
+  searchUrlsSource?: 'SHEET'|'INPUT';
   searchUrls?: SearchInput[];
   minProfit?: number;
   maxListingsPerRun?: number;
