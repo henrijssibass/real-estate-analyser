@@ -4,7 +4,7 @@ import type { ActorInput, Listing, SeenRecord, SearchInput, UnderwritingResult }
 import { enrichFromDetail, nextPaginationUrl, parseSearchRows } from './parse.js';
 import { compactSeenRecord, hasImportantSearchChange, type ChangeType } from './history.js';
 import { loadActiveSearchUrls, syncAndUnderwrite, UNDERWRITING_VERSION, type SheetsSyncResult } from './sheets.js';
-import { notificationFingerprint, sendTelegram, sendTelegramSummary, shouldNotify } from './telegram.js';
+import { notificationFingerprint, sendTelegram, sendTelegramNotice, sendTelegramSummary, shouldNotify } from './telegram.js';
 import { calendarDateInTimeZone, shouldSendSummary } from './summary-policy.js';
 import { resolveCandidateLimit, selectTopDeals } from './top-deals.js';
 
@@ -16,6 +16,15 @@ const fullScan = runMode === 'FULL_SCAN';
 const dryRun = input.dryRun ?? false;
 const topDealsLimit = Math.min(Math.max(Math.floor(input.topDealsLimit??0),0),100);
 if(!fullScan&&(input.fullScanAll||topDealsLimit))throw new Error('All-listings and top-deal options require FULL_SCAN');
+
+if(input.telegramNotice){
+  const sent=await sendTelegramNotice(input.telegramNotice);
+  const summary={finishedAt:new Date().toISOString(),runMode:'TELEGRAM_NOTICE',notificationsSent:sent?1:0,
+    sheetsRowsWritten:0,searchPageRequests:0,detailPageRequests:0,runtimeSeconds:Math.round((Date.now()-startedAt)/1000)};
+  await Actor.setValue('RUN_SUMMARY',summary);log.info('RUN_SUMMARY',summary);
+  if(!sent)throw new Error('Telegram notice delivery failed');
+  await Actor.exit();
+}
 
 // Explicit operator-only preview path. It deliberately runs before opening the
 // history store, crawler, Sheets bridge, or dataset so a formatting test cannot

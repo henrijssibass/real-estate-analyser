@@ -16,6 +16,8 @@ export interface ActorInput {
   diagnosticForceNewListings?: number;
   /** One-off operator preview. Sends exactly one formatted alert and exits without scraping or storage changes. */
   telegramPreview?: { listing: Listing; analysis: UnderwritingResult };
+  /** Explicit operator-only correction/notice to the same private Telegram destination. */
+  telegramNotice?: string;
 }
 export interface Listing {
   listingId: string; source: 'SS.com'; url: string; scrapedAt: string;
