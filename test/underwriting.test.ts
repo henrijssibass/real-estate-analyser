@@ -15,6 +15,25 @@ const config={
   costs:[['Duty','% of purchase',.02],['Notary','Fixed €',200],['Utilities','Fixed €',600],['Tax','Fixed €',75]],
 };
 describe('sheet underwriting',()=>{
+  it('updates qualified candidates in one batch and removes candidates that no longer qualify',()=>{
+    let saved:any[]=[],cleared:any;
+    const touched:string[]=[];
+    const previous=[['keep'],['obsolete'],['unqualified-review']];
+    context.SpreadsheetApp={getActive:()=>({getSheetByName:(name:string)=>{touched.push(name);return {
+      getLastRow:()=>7,
+      getRange:(row:number,column:number,count:number,width:number)=>({getValues:()=>previous,setValues:(v:any[])=>{saved=v;},clearContent:()=>{cleared={row,column,count,width};}}),
+    };}})};
+    const keep=underwrite({...listing,listingId:'keep'},config,7000);
+    const review={...keep,listingId:'new-review',status:'REVIEW',importantReview:true};
+    const sync=context.syncCandidateBatch_;
+    const result=sync([{...listing,listingId:'keep'},listing,listing,{...listing,listingId:'new-review'}],
+      [keep,{listingId:'obsolete',status:'FAIL'},{listingId:'unqualified-review',status:'REVIEW',importantReview:false},review],config);
+    expect(result.written).toBe(2);expect(result.removed).toBe(2);
+    expect(saved.map(r=>r[0])).toEqual(['keep','new-review']);
+    expect(saved.map(r=>r[29])).toEqual(['PASS','REVIEW']);
+    expect(cleared).toEqual({row:7,column:1,count:1,width:32});
+    expect(touched).toEqual(['Deal_Analysis']);
+  });
   it('uses the arithmetic mean €/m² times the actual listing area, including all costs',()=>{
     const r=underwrite(listing,config,7000);
     expect(r.baseArvPerM2).toBe(1445.28);

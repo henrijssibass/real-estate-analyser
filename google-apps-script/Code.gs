@@ -20,10 +20,9 @@ function doPost(e) {
     try {
       const config = loadConfig_();
       const results = listings.map(l => underwrite_(l, config, minProfit));
-      let sheetsRowsWritten=0;
-      results.forEach((r,i) => { if (!payload.dryRun && isActionable_(r)) { upsertCandidate_(listings[i],r,config); sheetsRowsWritten++; } });
+      const sync=payload.dryRun?{written:0,removed:0}:syncCandidateBatch_(listings,results,config);
       SpreadsheetApp.flush();
-      return json_({ ok:true, underwritingVersion:UNDERWRITING_VERSION, results:results, sheetsRowsWritten:sheetsRowsWritten });
+      return json_({ ok:true, underwritingVersion:UNDERWRITING_VERSION, results:results, sheetsRowsWritten:sync.written, sheetsRowsRemoved:sync.removed });
     } finally { lock.releaseLock(); }
   } catch (err) { console.error(String(err)); return json_({ok:false,error:String(err)}); }
 }
@@ -101,12 +100,25 @@ function matchFilter_(l,rows){
 
 function manualArvOverride_(listingId,rows){const row=rows.find(r=>String(r[0])===String(listingId));const value=row&&Number(row[7]);return value>0?value:null;}
 
-function upsertCandidate_(l,r,cfg) {
-  const sh=SpreadsheetApp.getActive().getSheetByName(CANDIDATES_SHEET); const last=Math.max(4,sh.getLastRow());
-  const ids=last>=5?sh.getRange(5,1,last-4,1).getDisplayValues().flat():[]; const found=ids.indexOf(String(l.listingId)); const row=found>=0?found+5:last+1;
+function candidateRow_(l,r,cfg) {
   const filter=matchFilter_(l,cfg.filters); const filterRow=filter&&filter!==false?cfg.filters.indexOf(filter)+5:''; const manual=r.manualArvOverrideEur;
-  const values=[[l.listingId,l.district,l.address,l.series,l.rooms,'',l.areaM2,l.floor,l.totalFloors,l.priceEur,l.pricePerM2,filterRow,filter===false?'FILTER REJECT':filter?'MATCHED':'AUTO',r.renovationCoreRatePerM2,r.renovationFixedEur,r.renovationCostBeforeContingencyEur,r.renovationContingencyPct,r.renovationCostEur,r.otherCostsEur,r.compCount,r.baseArvPerM2,r.baseArvEur,r.expectedProfitLowEur,r.expectedProfitHighEur,manual,r.underwritingArvEur,r.totalProjectCostEur,r.expectedProfitEur,r.roi,r.status,(r.riskFlags||[]).join('; '),l.url]];
-  sh.getRange(row,1,1,32).setValues(values);
+  return [l.listingId,l.district,l.address,l.series,l.rooms,'',l.areaM2,l.floor,l.totalFloors,l.priceEur,l.pricePerM2,filterRow,filter===false?'FILTER REJECT':filter?'MATCHED':'AUTO',r.renovationCoreRatePerM2,r.renovationFixedEur,r.renovationCostBeforeContingencyEur,r.renovationContingencyPct,r.renovationCostEur,r.otherCostsEur,r.compCount,r.baseArvPerM2,r.baseArvEur,r.expectedProfitLowEur,r.expectedProfitHighEur,manual,r.underwritingArvEur,r.totalProjectCostEur,r.expectedProfitEur,r.roi,r.status,(r.riskFlags||[]).join('; '),l.url];
+}
+function syncCandidateBatch_(listings,results,cfg) {
+  const sh=SpreadsheetApp.getActive().getSheetByName(CANDIDATES_SHEET); const previousLength=Math.max(0,sh.getLastRow()-4);
+  const previous=previousLength?sh.getRange(5,1,previousLength,32).getValues():[];
+  const rows=new Map(previous.filter(r=>r[0]).map(r=>[String(r[0]),r])); let written=0,removed=0;
+  results.forEach((r,i)=>{
+    const id=String(r.listingId);
+    if(isActionable_(r)){rows.set(id,candidateRow_(listings[i],r,cfg));written++;}
+    else if(rows.delete(id)){removed++;}
+  });
+  const values=Array.from(rows.values());
+  if(written||removed){
+    if(values.length)sh.getRange(5,1,values.length,32).setValues(values);
+    if(previousLength>values.length)sh.getRange(5+values.length,1,previousLength-values.length,32).clearContent();
+  }
+  return {written:written,removed:removed};
 }
 function sumCost_(rows,type){return rows.filter(r=>String(r[1])===type).reduce((s,r)=>{const value=Number(r[2]);return s+(isFinite(value)?value:0);},0);}
 function norm_(v){return String(v||'').replace(/\u00a0/g,' ').trim().replace(/\s+/g,' ').toLocaleLowerCase('lv-LV');}
