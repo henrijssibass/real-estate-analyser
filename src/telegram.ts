@@ -33,10 +33,16 @@ export async function sendTelegram(listing: Listing, result: UnderwritingResult)
   } catch(error) { log.error('Telegram delivery failed',{message:error instanceof Error?error.message:String(error)}); return false; }
 }
 
-export async function sendTelegramSummary(summary:{runMode:string;activeUrlsConfigured:number;activeUrlsChecked:number;totalListingsDiscovered:number;newListings:number;changedListings:number;skippedOldListings:number;evaluated:number;ignored:number;pass:number;review:number;dealNotificationsSent:number;runtimeSeconds:number;estimatedCostUsd:number|null;searchPageRequests:number;detailPageRequests:number;sheetsRequests:number}):Promise<boolean>{
-  const token=process.env.TELEGRAM_BOT_TOKEN; const chatId=process.env.TELEGRAM_CHAT_ID;
-  if(!token||!chatId){log.warning('Telegram summary skipped: required secret variables are unavailable');return false;}
-  const outcome=summary.pass+summary.review>0?`Deals found: PASS ${summary.pass}, REVIEW ${summary.review}.`:'No qualifying deals found.';
+export interface TelegramRunSummary {
+  runMode:string;activeUrlsConfigured:number;activeUrlsChecked:number;totalListingsDiscovered:number;newListings:number;changedListings:number;
+  skippedOldListings:number;evaluated:number;ignored:number;pass:number;review:number;dealNotificationsSent:number;runtimeSeconds:number;
+  estimatedCostUsd:number|null;searchPageRequests:number;detailPageRequests:number;sheetsRequests:number;
+  scanComplete?:boolean;incompleteReasons?:string[];topDealsLimit?:number;
+  topDeals?:Array<{rank:number;district:string;address:string;profitLowEur:number|null;profitHighEur:number|null;roi:number|null}>;
+}
+
+export function formatTelegramRunSummary(summary:TelegramRunSummary):string{
+  const outcome=summary.scanComplete===false?'⚠️ Scan incomplete — this is not a complete market ranking.':summary.pass+summary.review>0?`Deals found: PASS ${summary.pass}, REVIEW ${summary.review}.`:'No qualifying deals found.';
   const cost=summary.estimatedCostUsd==null?'pending in Apify':`≈$${summary.estimatedCostUsd.toFixed(3)}`;
   const text=[`📋 Run summary — ${summary.runMode}`,'',
     `🔗 URLs: ${summary.activeUrlsChecked}/${summary.activeUrlsConfigured}`,
@@ -46,7 +52,20 @@ export async function sendTelegramSummary(summary:{runMode:string;activeUrlsConf
     `🌐 Requests: search ${summary.searchPageRequests} · details ${summary.detailPageRequests} · Sheets ${summary.sheetsRequests}`,
     `✅ PASS: ${summary.pass} · 🟡 REVIEW: ${summary.review}`,
     `📨 Deal alerts sent: ${summary.dealNotificationsSent}`,
-    `⏱ Runtime: ${summary.runtimeSeconds}s · 💵 Cost: ${cost}`,'',outcome].join('\n');
+    `⏱ Runtime: ${summary.runtimeSeconds}s · 💵 Cost: ${cost}`,'',outcome];
+  if(summary.scanComplete===false)text.push(...(summary.incompleteReasons??[]));
+  if(summary.topDealsLimit&&summary.scanComplete!==false){
+    const money=(v:number|null)=>v==null?'—':new Intl.NumberFormat('en-IE',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(v);
+    text.push('',`🏆 Top ${summary.topDeals?.length??0} — profit after contingency and all costs`);
+    for(const d of summary.topDeals??[])text.push(`${d.rank}. ${`${d.district}, ${d.address}`.slice(0,90)} — ${money(d.profitLowEur)}–${money(d.profitHighEur)} · ROI ${d.roi==null?'—':(d.roi*100).toFixed(1)+'%'}`);
+  }
+  return text.join('\n').slice(0,4000);
+}
+
+export async function sendTelegramSummary(summary:TelegramRunSummary):Promise<boolean>{
+  const token=process.env.TELEGRAM_BOT_TOKEN; const chatId=process.env.TELEGRAM_CHAT_ID;
+  if(!token||!chatId){log.warning('Telegram summary skipped: required secret variables are unavailable');return false;}
+  const text=formatTelegramRunSummary(summary);
   try{const response=await fetch(`https://api.telegram.org/bot${token}/sendMessage`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:chatId,text,disable_web_page_preview:true})});
     if(!response.ok)throw new Error(`Telegram returned HTTP ${response.status}`); const body=await response.json() as {ok?:boolean}; return body.ok===true;
   }catch(error){log.error('Telegram summary delivery failed',{message:error instanceof Error?error.message:String(error)});return false;}

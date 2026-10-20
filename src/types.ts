@@ -9,6 +9,8 @@ export interface ActorInput {
   maxConcurrency?: number;
   requestDelaySecs?: number;
   runMode?: 'FULL_SCAN'|'INCREMENTAL';
+  fullScanAll?: boolean;
+  topDealsLimit?: number;
   sendSummaryHeartbeat?: boolean;
   summaryFrequency?: 'EVERY_RUN'|'DAILY'|'NEVER';
   diagnosticForceNewListings?: number;

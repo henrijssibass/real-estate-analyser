@@ -6,6 +6,7 @@ import { compactSeenRecord, hasImportantSearchChange, type ChangeType } from './
 import { loadActiveSearchUrls, syncAndUnderwrite, UNDERWRITING_VERSION, type SheetsSyncResult } from './sheets.js';
 import { notificationFingerprint, sendTelegram, sendTelegramSummary, shouldNotify } from './telegram.js';
 import { calendarDateInTimeZone, shouldSendSummary } from './summary-policy.js';
+import { resolveCandidateLimit, selectTopDeals } from './top-deals.js';
 
 await Actor.init();
 const startedAt = Date.now();
@@ -13,6 +14,8 @@ const input = (await Actor.getInput<ActorInput>()) ?? {};
 const runMode = input.runMode ?? 'INCREMENTAL';
 const fullScan = runMode === 'FULL_SCAN';
 const dryRun = input.dryRun ?? false;
+const topDealsLimit = Math.min(Math.max(Math.floor(input.topDealsLimit??0),0),100);
+if(!fullScan&&(input.fullScanAll||topDealsLimit))throw new Error('All-listings and top-deal options require FULL_SCAN');
 
 // Explicit operator-only preview path. It deliberately runs before opening the
 // history store, crawler, Sheets bridge, or dataset so a formatting test cannot
@@ -41,7 +44,7 @@ if (input.searchUrlsSource === 'SHEET' || searchUrls.length === 0) {
 }
 if (searchUrls.length === 0) throw new Error('No active public SS.com sale search URLs are configured');
 
-const candidateLimit = fullScan ? Math.min(input.maxListingsPerRun ?? 1000, 1000) : Math.min(input.maxListingsPerRun ?? 100, 100);
+const candidateLimit = resolveCandidateLimit(fullScan,input.maxListingsPerRun,input.fullScanAll);
 const scrapeDetails = input.scrapeDetails ?? true;
 const delayMs = (fullScan ? (input.requestDelaySecs ?? 1.5) : Math.min(input.requestDelaySecs ?? 0.2, 0.2)) * 1000;
 const concurrency = Math.min(input.maxConcurrency ?? (fullScan ? 2 : 4), fullScan ? 5 : 4);
@@ -71,6 +74,8 @@ let failedRequests = 0;
 let failedSearchRequests = 0;
 let successfulSearchRequests = 0;
 let sourceUnavailable = false;
+let scanTruncated = false;
+let blockedPagination = false;
 const ignoredReasons: Record<string, number> = {};
 const ignore = (reason: string) => { ignoredReasons[reason] = (ignoredReasons[reason] ?? 0) + 1; };
 const runSeenKeys = new Set<string>();
@@ -125,12 +130,18 @@ try {
   const outageSummary = {
     finishedAt:new Date().toISOString(), runMode, activeUrlsConfigured:searchUrls.length, activeUrlsChecked:0,
     totalListingsDiscovered:0, newListings:0, changedListings:0, skippedOldListings:0, evaluated:0,
-    pass:0, review:0, ignored:0, notificationsSent:0, sheetsRowsWritten:0,
+    pass:0, review:0, ignored:0, notificationsSent:0, sheetsRowsWritten:0, summarySent:false,
     searchPageRequests:0, detailPageRequests:0, sheetsRequests, telegramRequests:0,
     failedRequests:0, failedSearchRequests:0, sourceUnavailable, sourceError:message,
     runtimeMs:Date.now() - startedAt, runtimeSeconds, memoryMb:configuredMemoryMb, peakMemoryMb,
-    usageTotalUsd, estimatedCostUsd:usageTotalUsd, dryRun,
+    usageTotalUsd, estimatedCostUsd:usageTotalUsd, dryRun, scanComplete:false, topDealsLimit,
   };
+  if(!dryRun&&(topDealsLimit>0||input.summaryFrequency==='EVERY_RUN')){
+    outageSummary.telegramRequests=1;
+    outageSummary.summarySent=await sendTelegramSummary({...outageSummary,dealNotificationsSent:0,
+      incompleteReasons:['SS.com robots.txt was unavailable; no listings were checked.'],topDeals:[]});
+    outageSummary.notificationsSent=outageSummary.summarySent?1:0;
+  }
   log.error('SS.com robots.txt preflight failed; ending run before crawl', {message, robotsTimeoutMs});
   await Actor.setValue('RUN_SUMMARY', outageSummary);
   throw new Error(`SS.com unavailable during robots.txt preflight: ${message}`);
@@ -166,10 +177,16 @@ const crawler = new CheerioCrawler({
     if (delayMs > 0) await sleep(delayMs);
     sampleMemory();
     if (request.userData.label === 'SEARCH') {
+      const pageText=$('body').text().toLowerCase();
+      if(/captcha|verify you are human|access denied|too many requests|drošības pārbaude/.test(pageText)
+        ||$('form[action*="captcha"], input[name*="captcha"], #challenge-form').length){
+        throw new Error('Source protection page detected; no bypass attempted');
+      }
       searchPageRequests++;
       successfulSearchRequests++;
       checkedSearchUrls.add(request.userData.rootSearchUrl ?? request.url);
       const listings = parseSearchRows($, request.url, request.userData.searchName, request.userData.district, new Date().toISOString());
+      if(!listings.length&&$('a.am[href*="/msg/"]').length)throw new Error('Listing links found but apartment rows could not be parsed');
       let pageHasNewOrChanged = false;
       for (const listing of listings) {
         const uniqueKey = listing.listingId || listing.url;
@@ -201,6 +218,7 @@ const crawler = new CheerioCrawler({
         }
 
         if (totalListingsDiscovered >= candidateLimit) {
+          scanTruncated = true;
           ignore('CANDIDATE_LIMIT');
           continue;
         }
@@ -237,9 +255,12 @@ const crawler = new CheerioCrawler({
       // INCREMENTAL walks one page at a time. It never fans out every pagination
       // link, and it stops as soon as a complete page is unchanged.
       const next = nextPaginationUrl($, request.url);
+      if(next&&fullScan&&totalListingsDiscovered>=candidateLimit)scanTruncated=true;
       if (next && (fullScan || pageHasNewOrChanged) && totalListingsDiscovered < candidateLimit && await isAllowedByRobots(next)) {
         await queue.addRequest({url:next, uniqueKey:`SEARCH-${next}`, userData:{...request.userData, pageNumber:Number(request.userData.pageNumber ?? 1) + 1}});
-      } else if (!pageHasNewOrChanged && listings.length) {
+      } else if(next&&fullScan&&totalListingsDiscovered<candidateLimit){
+        blockedPagination=true;
+      } else if (!fullScan&&!pageHasNewOrChanged && listings.length) {
         log.info('Incremental pagination stopped on unchanged page', {url:request.url, listings:listings.length});
       }
       return;
@@ -255,9 +276,9 @@ const crawler = new CheerioCrawler({
       checkedSearchUrls.add(request.userData.rootSearchUrl ?? request.url);
     }
     log.warning(`Request failed safely: ${request.url}`, {error:error.message});
-    if (!fullScan && successfulSearchRequests === 0 && failedSearchRequests >= 3) {
+    if (successfulSearchRequests === 0 && failedSearchRequests >= 3) {
       sourceUnavailable = true;
-      log.error('Incremental source circuit breaker opened after three initial search failures');
+      log.error('Source circuit breaker opened after three initial search failures');
       await crawler.autoscaledPool?.abort();
     }
   },
@@ -295,10 +316,21 @@ if (evaluatedListings.length > 0) {
   sheetsRequests += sheetsSync.requests;
 }
 const analyses = sheetsSync.analyses;
+const incompleteReasons:string[]=[];
+if(checkedSearchUrls.size!==searchUrls.length)incompleteReasons.push('Not all configured searches were checked.');
+if(failedRequests)incompleteReasons.push(`${failedRequests} page requests failed.`);
+if(scanTruncated)incompleteReasons.push('The listing limit was reached before every search ended.');
+if(blockedPagination)incompleteReasons.push('robots.txt disallowed one or more pagination pages.');
+if(evaluatedListings.length>analyses.size)incompleteReasons.push('Some listings could not be analysed.');
+const scanComplete=incompleteReasons.length===0;
+const rankedDeals=topDealsLimit&&scanComplete?selectTopDeals(evaluatedListings,analyses,topDealsLimit):[];
+const topRanks=new Map(rankedDeals.map(deal=>[deal.listing.listingId,deal.rank]));
+const deliveryListings=topDealsLimit?[...rankedDeals.map(deal=>deal.listing),...evaluatedListings.filter(l=>!topRanks.has(l.listingId))]:evaluatedListings;
+if(topDealsLimit)await Actor.setValue('TOP_DEALS',{scanComplete,incompleteReasons,ranking:'profit after renovation contingency and all costs',deals:rankedDeals});
 let notificationsSent = 0;
 const statusCounts: Record<string, number> = {};
 
-for (const listing of evaluatedListings) {
+for (const listing of deliveryListings) {
   const internal = listing as Listing & {_changeType:string; _firstSeenAt:string};
   const analysis = analyses.get(listing.listingId);
   const riskFlags = analysis?.riskFlags ?? ['DEAL_ANALYSIS_PENDING_SHEET_SYNC'];
@@ -312,11 +344,13 @@ for (const listing of evaluatedListings) {
   const finalStatus = analysis?.status ?? 'UNCERTAIN';
   statusCounts[finalStatus] = (statusCounts[finalStatus] ?? 0) + 1;
   const actionable = analysis?.status === 'PASS' || (analysis?.status === 'REVIEW' && analysis.importantReview);
-  if (actionable && (fullScan || internal._changeType !== 'UNCHANGED' || statusChanged)) await Actor.pushData(output);
+  const selectedForDelivery=!topDealsLimit||topRanks.has(listing.listingId);
+  if(topDealsLimit&&topRanks.has(listing.listingId))Object.assign(output,{topDealRank:topRanks.get(listing.listingId)});
+  if (actionable && selectedForDelivery && (fullScan || internal._changeType !== 'UNCHANGED' || statusChanged)) await Actor.pushData(output);
   if (!dryRun && analysis) {
     const fingerprint = notificationFingerprint(listing, analysis);
     const hasDealNumbers = analysis.underwritingArvEur != null && analysis.expectedProfitEur != null && analysis.roi != null;
-    if (hasDealNumbers && shouldNotify(analysis, !fullScan && record.lastNotifiedFingerprint === fingerprint)) {
+    if (selectedForDelivery && hasDealNumbers && shouldNotify(analysis, !fullScan && record.lastNotifiedFingerprint === fingerprint)) {
       telegramRequests++;
       if (await sendTelegram(listing, analysis)) {
         record.lastNotifiedFingerprint = fingerprint;
@@ -354,37 +388,41 @@ const summaryDue = !dryRun && shouldSendSummary(summaryFrequency, summaryDate, s
 if (summaryDue) {
   telegramRequests++;
   summarySent = await sendTelegramSummary({runMode, activeUrlsConfigured:searchUrls.length, activeUrlsChecked:checkedSearchUrls.size,
-    totalListingsDiscovered, newListings, changedListings, skippedOldListings, evaluated:evaluatedListings.length,
+    totalListingsDiscovered:searchRowsObserved, newListings, changedListings, skippedOldListings, evaluated:evaluatedListings.length,
     ignored:analysisIgnored, pass, review, dealNotificationsSent, runtimeSeconds:runtimeSecondsBeforeSummary,
-    estimatedCostUsd:usageTotalUsd, searchPageRequests, detailPageRequests, sheetsRequests});
+    estimatedCostUsd:usageTotalUsd, searchPageRequests, detailPageRequests, sheetsRequests,
+    scanComplete,incompleteReasons,topDealsLimit,topDeals:rankedDeals.map(d=>({rank:d.rank,district:d.listing.district,address:d.listing.address,
+      profitLowEur:d.analysis.expectedProfitLowEur??d.analysis.expectedProfitEur,profitHighEur:d.analysis.expectedProfitHighEur??d.analysis.expectedProfitEur,roi:d.analysis.roi}))});
   if (summarySent) {
     notificationsSent++;
-    await store.setValue('TELEGRAM_SUMMARY_STATE', {lastSentDate:summaryDate, lastSentAt:new Date().toISOString()});
+    if(summaryFrequency==='DAILY')await store.setValue('TELEGRAM_SUMMARY_STATE', {lastSentDate:summaryDate, lastSentAt:new Date().toISOString()});
   }
 }
 sampleMemory();
 
 const runSummary = {
   finishedAt:new Date().toISOString(), runMode, activeUrlsConfigured:searchUrls.length, activeUrlsChecked:checkedSearchUrls.size,
-  totalListingsDiscovered, searchRowsObserved, newListings, changedListings, skippedOldListings,
+  totalListingsDiscovered:searchRowsObserved, eligibleListingsQueued:totalListingsDiscovered, searchRowsObserved, newListings, changedListings, skippedOldListings,
   evaluated:evaluatedListings.length, pass, review, ignored:analysisIgnored, ignoredReasons,
   sheetsRowsWritten:sheetsSync.sheetsRowsWritten, dealNotificationsSent, notificationsSent, summarySent,
   searchPageRequests, detailPageRequests, sheetsRequests, telegramRequests,
   failedRequests, failedSearchRequests, successfulSearchRequests, sourceUnavailable,
   runtimeMs:Date.now() - startedAt, runtimeSeconds:Math.round((Date.now() - startedAt) / 1000),
   memoryMb:configuredMemoryMb, peakMemoryMb, usageTotalUsd, estimatedCostUsd:usageTotalUsd,
-  maxListings:candidateLimit, maxConcurrency:concurrency, requestDelaySecs:delayMs / 1000,
+  maxListings:Number.isFinite(candidateLimit)?candidateLimit:'ALL', maxConcurrency:concurrency, requestDelaySecs:delayMs / 1000,
   maxRequestRetries:fullScan ? 2 : 0, navigationTimeoutSecs:fullScan ? 30 : 8, robotsTimeoutMs,
   historyIndexEntries:Object.keys(historyIndex).length, historyMigrationReads, forcedNewListings,
   summaryFrequency, summaryDue, summaryDate, dryRun, underwritingVersion:UNDERWRITING_VERSION,
   underwritingPending:evaluatedListings.length-analyses.size, sheetsConnected:analyses.size > 0, statusCounts,
+  scanComplete,incompleteReasons,topDealsLimit,topDealsSelected:rankedDeals.length,
 };
 log.info('RUN_SUMMARY', runSummary);
 await Actor.setValue('RUN_SUMMARY', runSummary);
 if (sourceUnavailable && successfulSearchRequests === 0) {
-  throw new Error('SS.com search pages were unavailable; incremental crawl stopped by the cost-protection circuit breaker');
+  throw new Error('SS.com search pages were unavailable; crawl stopped by the cost-protection circuit breaker');
 }
 if (evaluatedListings.length > analyses.size) throw new Error('Some listings could not be underwritten; they remain pending in history for the next incremental run');
+if(topDealsLimit&&!scanComplete)throw new Error('Full scan incomplete; Telegram summary explains why no global top list was sent');
 await Actor.exit();
 
 async function getCurrentRunCostUsd(): Promise<number | null> {

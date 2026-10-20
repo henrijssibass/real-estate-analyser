@@ -36,4 +36,6 @@ After a crawl finishes successfully, the Actor drops its temporary default reque
 
 `FULL_SCAN` remains separately capped at 1,000 candidates and may use the configured longer delay. `RUN_SUMMARY` includes search/detail/Sheets/Telegram request counts, configured and peak memory, runtime, and current `usageTotalUsd`.
 
+For an explicitly budgeted one-off market review, set `runMode: "FULL_SCAN"`, `fullScanAll: true`, `topDealsLimit: 10`, and `summaryFrequency: "EVERY_RUN"`. Set a platform maximum run cost and timeout separately. With `scrapeDetails: false`, the scan uses apartment table fields and does not spend requests opening every detail page. All qualified candidates still sync to Sheets, while only the ten highest profits **after contingency and all costs** enter the Dataset and Telegram alerts. Any failed page, blocked pagination, listing cap, or missing analysis makes the scan incomplete and suppresses the purported global top list; Telegram receives an explicit incomplete-scan summary instead. `TOP_DEALS` stores the ranked result and coverage metadata. A one-off summary does not change the scheduled daily-summary state or the incremental schedule.
+
 See `google-apps-script/README.md` for the credential-free Google Sheets bridge deployment.
