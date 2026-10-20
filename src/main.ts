@@ -3,7 +3,7 @@ import { CheerioCrawler, RequestQueue, RobotsTxtFile, sleep } from 'crawlee';
 import type { ActorInput, Listing, SeenRecord, SearchInput, UnderwritingResult } from './types.js';
 import { enrichFromDetail, nextPaginationUrl, parseSearchRows } from './parse.js';
 import { compactSeenRecord, hasImportantSearchChange, type ChangeType } from './history.js';
-import { loadActiveSearchUrls, syncAndUnderwrite, type SheetsSyncResult } from './sheets.js';
+import { loadActiveSearchUrls, syncAndUnderwrite, UNDERWRITING_VERSION, type SheetsSyncResult } from './sheets.js';
 import { notificationFingerprint, sendTelegram, sendTelegramSummary, shouldNotify } from './telegram.js';
 import { calendarDateInTimeZone, shouldSendSummary } from './summary-policy.js';
 
@@ -200,8 +200,8 @@ const crawler = new CheerioCrawler({
           continue;
         }
 
-        if (!fullScan && totalListingsDiscovered >= candidateLimit) {
-          ignore('INCREMENTAL_CANDIDATE_LIMIT');
+        if (totalListingsDiscovered >= candidateLimit) {
+          ignore('CANDIDATE_LIMIT');
           continue;
         }
 
@@ -237,7 +237,7 @@ const crawler = new CheerioCrawler({
       // INCREMENTAL walks one page at a time. It never fans out every pagination
       // link, and it stops as soon as a complete page is unchanged.
       const next = nextPaginationUrl($, request.url);
-      if (next && (fullScan || pageHasNewOrChanged) && (fullScan || totalListingsDiscovered < candidateLimit) && await isAllowedByRobots(next)) {
+      if (next && (fullScan || pageHasNewOrChanged) && totalListingsDiscovered < candidateLimit && await isAllowedByRobots(next)) {
         await queue.addRequest({url:next, uniqueKey:`SEARCH-${next}`, userData:{...request.userData, pageNumber:Number(request.userData.pageNumber ?? 1) + 1}});
       } else if (!pageHasNewOrChanged && listings.length) {
         log.info('Incremental pagination stopped on unchanged page', {url:request.url, listings:listings.length});
@@ -289,10 +289,10 @@ await crawler.run();
 await queue.drop();
 sampleMemory();
 
-let sheetsSync: SheetsSyncResult = {analyses:new Map(), sheetsRowsWritten:0};
+let sheetsSync: SheetsSyncResult = {analyses:new Map(), sheetsRowsWritten:0, requests:0};
 if (evaluatedListings.length > 0) {
-  sheetsRequests++;
-  sheetsSync = await syncAndUnderwrite(evaluatedListings, input.minProfit ?? 7000);
+  sheetsSync = await syncAndUnderwrite(evaluatedListings, input.minProfit ?? 7000, dryRun);
+  sheetsRequests += sheetsSync.requests;
 }
 const analyses = sheetsSync.analyses;
 let notificationsSent = 0;
@@ -307,10 +307,11 @@ for (const listing of evaluatedListings) {
   delete (output as Record<string, unknown>)._changeType;
   delete (output as Record<string, unknown>)._firstSeenAt;
   const record = listingHistory.get(listing.listingId)!;
+  record.analysisPending = !analysis;
   const statusChanged = Boolean(analysis && record.lastStatus && record.lastStatus !== analysis.status);
   const finalStatus = analysis?.status ?? 'UNCERTAIN';
   statusCounts[finalStatus] = (statusCounts[finalStatus] ?? 0) + 1;
-  const actionable = analysis?.status === 'PASS' || analysis?.status === 'REVIEW';
+  const actionable = analysis?.status === 'PASS' || (analysis?.status === 'REVIEW' && analysis.importantReview);
   if (actionable && (fullScan || internal._changeType !== 'UNCHANGED' || statusChanged)) await Actor.pushData(output);
   if (!dryRun && analysis) {
     const fingerprint = notificationFingerprint(listing, analysis);
@@ -375,13 +376,15 @@ const runSummary = {
   maxListings:candidateLimit, maxConcurrency:concurrency, requestDelaySecs:delayMs / 1000,
   maxRequestRetries:fullScan ? 2 : 0, navigationTimeoutSecs:fullScan ? 30 : 8, robotsTimeoutMs,
   historyIndexEntries:Object.keys(historyIndex).length, historyMigrationReads, forcedNewListings,
-  summaryFrequency, summaryDue, summaryDate, dryRun, sheetsConnected:analyses.size > 0, statusCounts,
+  summaryFrequency, summaryDue, summaryDate, dryRun, underwritingVersion:UNDERWRITING_VERSION,
+  underwritingPending:evaluatedListings.length-analyses.size, sheetsConnected:analyses.size > 0, statusCounts,
 };
 log.info('RUN_SUMMARY', runSummary);
 await Actor.setValue('RUN_SUMMARY', runSummary);
 if (sourceUnavailable && successfulSearchRequests === 0) {
   throw new Error('SS.com search pages were unavailable; incremental crawl stopped by the cost-protection circuit breaker');
 }
+if (evaluatedListings.length > analyses.size) throw new Error('Some listings could not be underwritten; they remain pending in history for the next incremental run');
 await Actor.exit();
 
 async function getCurrentRunCostUsd(): Promise<number | null> {

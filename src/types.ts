@@ -29,10 +29,12 @@ export interface SeenRecord {
   priceHistory: Array<{ at: string; priceEur: number | null }>;
   lastNotifiedFingerprint?: string;
   lastStatus?: DealStatus;
+  analysisPending?: boolean;
   listingSnapshot?: Listing;
 }
 export type DealStatus = 'PASS'|'REVIEW'|'FAIL'|'UNCERTAIN';
 export interface UnderwritingResult {
+  underwritingVersion?: string;
   listingId: string; status: DealStatus; importantReview: boolean;
   renovationCostBeforeContingencyEur: number | null; renovationContingencyPct: number | null;
   renovationCostEur: number | null; otherCostsEur: number | null;

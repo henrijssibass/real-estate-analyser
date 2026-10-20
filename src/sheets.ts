@@ -2,6 +2,8 @@ import { log } from 'apify';
 import type { Listing, SearchInput, UnderwritingResult } from './types.js';
 
 const timeoutMs = 30_000;
+export const UNDERWRITING_VERSION = 'arv-per-m2-2026-10-20';
+const batchSize = 50;
 
 async function callBridge(payload: Record<string, unknown>): Promise<Response | null> {
   const endpoint = process.env.GOOGLE_SHEETS_WEBHOOK_URL;
@@ -25,20 +27,27 @@ export async function loadActiveSearchUrls(): Promise<SearchInput[]> {
   } catch(error) { log.error('Google Sheets search configuration failed',{message:error instanceof Error?error.message:String(error)}); return []; }
 }
 
-export interface SheetsSyncResult { analyses: Map<string, UnderwritingResult>; sheetsRowsWritten: number }
+export interface SheetsSyncResult { analyses: Map<string, UnderwritingResult>; sheetsRowsWritten: number; requests: number }
 
-export async function syncAndUnderwrite(listings: Listing[], minProfitEur: number): Promise<SheetsSyncResult> {
-  if (listings.length === 0) return {analyses:new Map(),sheetsRowsWritten:0};
-  try {
-    const response=await callBridge({action:'underwrite',minProfitEur,listings}); if(!response) return {analyses:new Map(),sheetsRowsWritten:0};
+export async function syncAndUnderwrite(listings: Listing[], minProfitEur: number, dryRun = false): Promise<SheetsSyncResult> {
+  const result: SheetsSyncResult = {analyses:new Map(),sheetsRowsWritten:0,requests:0};
+  // Bounded sequential batches avoid the Apps Script deadline hit by full scans.
+  // A failed batch leaves the corresponding history entries pending for retry.
+  for (let offset=0; offset<listings.length; offset+=batchSize) {
+   try {
+    result.requests++;
+    const batch=listings.slice(offset,offset+batchSize);
+    const response=await callBridge({action:'underwrite',minProfitEur,listings:batch,dryRun}); if(!response) break;
     if (!response.ok) throw new Error(`Sheets bridge returned HTTP ${response.status}`);
-    const body = await response.json() as { ok?: boolean; results?: UnderwritingResult[]; sheetsRowsWritten?:number; error?: string };
+    const body = await response.json() as { ok?: boolean; underwritingVersion?:string; results?: UnderwritingResult[]; sheetsRowsWritten?:number; error?: string };
     if (!body.ok || !Array.isArray(body.results)) throw new Error(body.error || 'Invalid Sheets bridge response');
-    const analyses=new Map(body.results.map((result) => [result.listingId, result]));
-    const inferredWrites=body.results.filter((result)=>result.status==='PASS'||(result.status==='REVIEW'&&result.importantReview)).length;
-    return {analyses,sheetsRowsWritten:Number(body.sheetsRowsWritten??inferredWrites)};
-  } catch (error) {
-    log.error('Google Sheets underwriting bridge failed', { message: error instanceof Error ? error.message : String(error) });
-    return {analyses:new Map(),sheetsRowsWritten:0};
+    if (body.underwritingVersion!==UNDERWRITING_VERSION) throw new Error('Deploy the ARV_Summary per-m² Sheets bridge before using this Actor build');
+    for(const analysis of body.results) result.analyses.set(analysis.listingId,analysis);
+    result.sheetsRowsWritten+=Number(body.sheetsRowsWritten??0);
+   } catch (error) {
+    log.error('Google Sheets underwriting batch failed', {batch:Math.floor(offset/batchSize)+1,message:error instanceof Error?error.message:String(error)});
+    break;
+   }
   }
+  return result;
 }

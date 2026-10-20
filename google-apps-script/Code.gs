@@ -1,6 +1,7 @@
 const CANDIDATES_SHEET = 'Deal_Analysis';
 const COMPS_SHEET = 'ARV_Comps';
-const APPRAISAL_SHEET = 'Best_Deals';
+const APPRAISAL_SHEET = 'ARV_Summary';
+const UNDERWRITING_VERSION = 'arv-per-m2-2026-10-20';
 const RENO_SHEET = 'Renovation_Costs_v2';
 const COSTS_SHEET = 'Other_Costs';
 const FILTERS_SHEET = 'Deal_Filters';
@@ -20,13 +21,13 @@ function doPost(e) {
       const config = loadConfig_();
       const results = listings.map(l => underwrite_(l, config, minProfit));
       let sheetsRowsWritten=0;
-      results.forEach((r,i) => { if (isActionable_(r)) { upsertCandidate_(listings[i],r,config); sheetsRowsWritten++; } });
+      results.forEach((r,i) => { if (!payload.dryRun && isActionable_(r)) { upsertCandidate_(listings[i],r,config); sheetsRowsWritten++; } });
       SpreadsheetApp.flush();
-      return json_({ ok:true, results:results, sheetsRowsWritten:sheetsRowsWritten });
+      return json_({ ok:true, underwritingVersion:UNDERWRITING_VERSION, results:results, sheetsRowsWritten:sheetsRowsWritten });
     } finally { lock.releaseLock(); }
   } catch (err) { console.error(String(err)); return json_({ok:false,error:String(err)}); }
 }
-function doGet(){return json_({ok:true,service:'ss-apartment-deal-finder-sheets-bridge'});}
+function doGet(){return json_({ok:true,service:'ss-apartment-deal-finder-sheets-bridge',underwritingVersion:UNDERWRITING_VERSION});}
 
 function loadActiveSearchUrls_(){
   const sh=SpreadsheetApp.getActive().getSheetByName(SEARCH_URLS_SHEET); if(!sh)return [];
@@ -39,7 +40,7 @@ function loadActiveSearchUrls_(){
 function loadConfig_() {
   const ss=SpreadsheetApp.getActive();
   const comps=ss.getSheetByName(COMPS_SHEET).getRange(5,1,Math.max(1,ss.getSheetByName(COMPS_SHEET).getLastRow()-4),18).getValues();
-  const appraisals=ss.getSheetByName(APPRAISAL_SHEET).getRange(5,1,Math.max(1,ss.getSheetByName(APPRAISAL_SHEET).getLastRow()-4),15).getValues();
+  const appraisals=ss.getSheetByName(APPRAISAL_SHEET).getRange(5,1,Math.max(1,ss.getSheetByName(APPRAISAL_SHEET).getLastRow()-4),11).getValues();
   const reno=ss.getSheetByName(RENO_SHEET).getRange(5,1,Math.max(1,ss.getSheetByName(RENO_SHEET).getLastRow()-4),24).getValues();
   const costs=ss.getSheetByName(COSTS_SHEET).getRange(5,1,Math.max(1,ss.getSheetByName(COSTS_SHEET).getLastRow()-4),5).getValues();
   const filters=ss.getSheetByName(FILTERS_SHEET).getRange(5,1,Math.max(1,ss.getSheetByName(FILTERS_SHEET).getLastRow()-4),17).getValues();
@@ -49,23 +50,22 @@ function loadConfig_() {
 
 function underwrite_(l,cfg,minProfit) {
   const flags=[];
-  const comparable=cfg.comps.filter(r=>String(r[16]).toLowerCase()==='yes'&&String(r[9]).toLowerCase().indexOf('verified')>=0&&
-    norm_(r[1])===norm_(l.district)&&norm_(r[3])===norm_(l.series)&&Number(r[4])===Number(l.rooms)&&Number(r[10])>0);
-  // Best_Deals is the appraisal baseline derived from verified ARV_Comps. Bathroom is intentionally
-  // excluded from matching; when multiple bathroom groups exist, combine them by verified comp count.
-  const appraisalRows=(cfg.appraisals||[]).filter(r=>norm_(r[0])===norm_(l.district)&&norm_(r[1])===norm_(l.series)&&Number(r[2])===Number(l.rooms)&&Number(r[4])>0&&Number(r[6])>0);
-  const summaryCompCount=appraisalRows.reduce((sum,r)=>sum+Number(r[4]||0),0);
-  const summaryBase=summaryCompCount?appraisalRows.reduce((sum,r)=>sum+Number(r[6])*Number(r[4]),0)/summaryCompCount:null;
-  const prices=comparable.map(r=>Number(r[10])).sort((a,b)=>a-b); const compCount=summaryCompCount||prices.length;
-  const conservative=appraisalRows.length?Math.min.apply(null,appraisalRows.map(r=>Number(r[8])||Number(r[6]))):(prices.length?prices[0]:null);
-  const base=summaryBase!=null?summaryBase:(prices.length?prices.reduce((a,b)=>a+b,0)/prices.length:null); const stretch=base==null?null:base*1.1;
+  // Every ARV_Comps row is user-confirmed. Legacy evidence/include columns and
+  // bathroom count must not remove valid district + series + rooms matches.
+  const appraisalRows=(cfg.appraisals||[]).filter(r=>norm_(r[0])===norm_(l.district)&&seriesKey_(r[1])===seriesKey_(l.series)&&Number(r[2])===Number(l.rooms)&&Number(r[3])>0&&Number(r[7])>0);
+  const compCount=appraisalRows.reduce((sum,r)=>sum+Number(r[3]),0);
+  const baseRate=compCount?appraisalRows.reduce((sum,r)=>sum+Number(r[7])*Number(r[3]),0)/compCount:null;
+  const area=Number(l.areaM2);
+  const base=baseRate!=null&&area>0?baseRate*area:null;
+  const conservative=base==null?null:Math.min.apply(null,appraisalRows.map(r=>Number(r[8])))*area;
+  const stretch=base==null?null:base*1.1;
   const manualOverride=manualArvOverride_(l.listingId,cfg.overrides); const underwritingArv=manualOverride==null?base:manualOverride;
   // Bathroom count is unreliable on SS.com and must not affect qualification.
   // Prefer the one-bath baseline, then any rooms+area profile as a fallback.
   const renoRows=cfg.reno.filter(r=>Number(r[1])===Number(l.rooms)&&Number(l.areaM2)>=Number(r[3])&&Number(l.areaM2)<=Number(r[4]));
   const renoRow=renoRows.find(r=>Number(r[2]||1)===1)||renoRows[0];
   const coreRate=renoRow?Number(renoRow[9]||0):null;
-  const fixedReno=renoRow?[11,12,13,14,18].reduce((s,i)=>s+Number(renoRow[i]||0),0):null;
+  const fixedReno=renoRow?[11,12,13,14,15,16,17,18,19].reduce((s,i)=>s+Number(renoRow[i]||0),0):null;
   const contingencyPct=renoRow?Number(renoRow[21]||0):null;
   const renoBefore=renoRow?Number(l.areaM2)*coreRate+fixedReno:null;
   const reno=renoBefore==null?null:renoBefore*(1+contingencyPct);
@@ -78,7 +78,7 @@ function underwrite_(l,cfg,minProfit) {
   const profitHigh=underwritingArv==null||totalBefore==null?null:underwritingArv-totalBefore;
   const roi=profit==null||!total?null:profit/total; const margin=profit==null||!underwritingArv?null:profit/underwritingArv;
   const filter=matchFilter_(l,cfg.filters); const effectiveMinProfit=filter&&Number(filter[11])>0?Number(filter[11]):minProfit; const effectiveMinRoi=filter&&Number(filter[12])>0?Number(filter[12]):0;
-  const maxOffer=underwritingArv==null||reno==null?null:(underwritingArv*(1-salePct)-reno-fixed-effectiveMinProfit)/(1+purchasePct);
+  const maxOffer=underwritingArv==null||reno==null?null:(underwritingArv*(1-salePct)-reno-fixed-monthly-effectiveMinProfit)/(1+purchasePct);
   if(compCount<3) flags.push('FEW_ARV_COMPS'); if(reno==null) flags.push('RENOVATION_PROFILE_MISSING'); if(l.floor===1) flags.push('FIRST_FLOOR'); if(l.floor&&l.totalFloors&&l.floor===l.totalFloors) flags.push('TOP_FLOOR');
   let status='FAIL'; let importantReview=false;
   if(base==null||reno==null||!l.priceEur){status='FAIL';flags.push('MISSING_UNDERWRITING_DATA');}
@@ -86,8 +86,8 @@ function underwrite_(l,cfg,minProfit) {
   else if(compCount>=3&&profit>=effectiveMinProfit&&(roi==null||roi>=effectiveMinRoi)) status='PASS';
   else if(profit>=REVIEW_MIN_PROFIT_EUR&&compCount>=1&&roi>=0.10){status='REVIEW';importantReview=true;}
   const confidence=compCount>=3&&reno!=null?'HIGH':compCount>=1&&reno!=null?'MEDIUM':'LOW';
-  const evidence=compCount?`${compCount} verified renovated sale${compCount===1?'':'s'}; appraisal baseline €${Math.round(base)}`:'No verified appraisal baseline for district + series + rooms';
-  return {listingId:l.listingId,status:status,importantReview:importantReview,renovationCoreRatePerM2:round_(coreRate),renovationFixedEur:round_(fixedReno),renovationCostBeforeContingencyEur:round_(renoBefore),renovationContingencyPct:contingencyPct,renovationCostEur:round_(reno),otherCostsEur:round_(other),totalProjectCostBeforeContingencyEur:round_(totalBefore),totalProjectCostEur:round_(total),conservativeArvEur:round_(conservative),baseArvPerM2:base==null||!l.areaM2?null:round_(base/Number(l.areaM2)),baseArvEur:round_(base),manualArvOverrideEur:round_(manualOverride),underwritingArvEur:round_(underwritingArv),stretchArvEur:round_(stretch),expectedProfitEur:round_(profit),expectedProfitLowEur:round_(profit),expectedProfitHighEur:round_(profitHigh),roi:roi,profitMargin:margin,maximumOfferEur:round_(maxOffer),compCount:compCount,confidence:confidence,riskFlags:flags,comparableEvidence:evidence};
+  const evidence=compCount?`${compCount} user-confirmed comps; average €${round_(baseRate)}/m² × ${area} m² = €${round_(base)}; ARV_Summary`:'No appraisal baseline for district + series + rooms';
+  return {listingId:l.listingId,status:status,importantReview:importantReview,underwritingVersion:UNDERWRITING_VERSION,renovationCoreRatePerM2:round_(coreRate),renovationFixedEur:round_(fixedReno),renovationCostBeforeContingencyEur:round_(renoBefore),renovationContingencyPct:contingencyPct,renovationCostEur:round_(reno),otherCostsEur:round_(other),totalProjectCostBeforeContingencyEur:round_(totalBefore),totalProjectCostEur:round_(total),conservativeArvEur:round_(conservative),baseArvPerM2:round_(baseRate),baseArvEur:round_(base),manualArvOverrideEur:round_(manualOverride),underwritingArvEur:round_(underwritingArv),stretchArvEur:round_(stretch),expectedProfitEur:round_(profit),expectedProfitLowEur:round_(profit),expectedProfitHighEur:round_(profitHigh),roi:roi,profitMargin:margin,maximumOfferEur:round_(maxOffer),compCount:compCount,confidence:confidence,riskFlags:flags,comparableEvidence:evidence};
 }
 
 function isActionable_(result){return result.status==='PASS'||(result.status==='REVIEW'&&result.importantReview===true);}
@@ -109,7 +109,8 @@ function upsertCandidate_(l,r,cfg) {
   sh.getRange(row,1,1,32).setValues(values);
 }
 function sumCost_(rows,type){return rows.filter(r=>String(r[1])===type).reduce((s,r)=>{const value=Number(r[2]);return s+(isFinite(value)?value:0);},0);}
-function norm_(v){return String(v||'').trim().toLocaleLowerCase('lv-LV');}
+function norm_(v){return String(v||'').replace(/\u00a0/g,' ').trim().replace(/\s+/g,' ').toLocaleLowerCase('lv-LV');}
+function seriesKey_(v){const value=norm_(v);return /^\d+\.?$/.test(value)?value.replace(/\.$/,'')+'.':value;}
 function round_(v){return v==null||!isFinite(v)?null:Math.round(v*100)/100;}
 function safeDate_(v){if(!v)return '';const d=new Date(v);return isNaN(d.getTime())?'':d;}
 function json_(v){return ContentService.createTextOutput(JSON.stringify(v)).setMimeType(ContentService.MimeType.JSON);}

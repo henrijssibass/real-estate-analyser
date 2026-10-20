@@ -20,15 +20,17 @@ The Actor does not authenticate, solve CAPTCHAs, rotate identities to evade bloc
 
 When `GOOGLE_SHEETS_WEBHOOK_URL` and `GOOGLE_SHEETS_WEBHOOK_SECRET` are configured, the Actor sends scraped listings to the bound Apps Script bridge for live workbook underwriting and receives PASS / REVIEW / FAIL results. Without that bridge, changed listings remain `UNCERTAIN` with `DEAL_ANALYSIS_PENDING_SHEET_SYNC`.
 
-When SS.com does not publish a bathroom count, the Actor keeps a one-bath internal fallback for schema compatibility. Bathroom count does not affect comparable matching or deal qualification.
+Base ARV is `ARV_Summary`'s arithmetic mean €/m² for district + series + rooms multiplied by the listing's area. All valid `ARV_Comps` rows are user-confirmed, including rows with blank legacy approval fields. Bathroom count does not affect comparable matching or deal qualification.
 
 Telegram uses only the encrypted Apify variables `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. Notifications are sent for PASS and important REVIEW results only. The named history store retains the last notification fingerprint (`listing ID + price + status`) to prevent repeated two-hour alerts.
 
-Deal alerts show the status, floor, renovation before/after contingency, Base ARV, conservative-to-upside profit range, conservative ROI, and listing link. Every non-dry run also sends a concise run summary with discovery, incremental, deal, runtime, and near-final Apify cost counters.
+Deal alerts show status, rooms, floor, series, renovation before/after contingency, other costs, Base ARV, profit range, ROI on total investment, and the listing link. Run summaries are throttled to once daily by default.
 
 ## Incremental cost controls
 
-The production schedule should run `INCREMENTAL` every four hours so the free monthly platform allowance has a wide safety margin. Scheduled runs use 256 MB, at most four concurrent Cheerio requests, and a 0.2-second handler delay. They check page 1 of every configured search, compare the row ID/URL/price against one compact history index, and request detail pages only for new or materially changed rows. Pagination advances one page at a time only while the current page contains changes. A zero-change run skips Sheets, underwriting, detail pages, and Dataset output. PASS/REVIEW alerts remain immediate, while the run summary is throttled to once per Europe/Riga calendar day by default.
+The production schedule runs `INCREMENTAL` every 30 minutes using 256 MB, at most four concurrent Cheerio requests, and a 0.2-second handler delay. Keep scheduled `searchUrls: []` so the bridge reads all active `Search_URLs` rows, including newly added districts. The Actor checks page 1, compares ID/URL/price with compact history, and requests details only for new or materially changed rows. Pagination continues while pages contain changes. A zero-change run skips underwriting, detail pages and Dataset output. PASS/REVIEW alerts remain immediate; summaries run once per Europe/Riga calendar day. Based on 44 recent runs averaging about $0.00245, 1,440 runs in 30 days project to $3.53; actual usage varies.
+
+Underwriting uses sequential batches of at most 50 listings. Failed analyses stay pending in history and are retried on a future incremental run, with the run marked failed instead of quietly discarding the listings. Dry runs suppress Sheets writes and Telegram alerts.
 
 After a crawl finishes successfully, the Actor drops its temporary default request queue. Do not delete the named `SS-COM-SEEN-HISTORY` key-value store: it contains the compact history and notification state that prevent repeat processing and duplicate alerts.
 

@@ -6,6 +6,7 @@ export type ChangeType = 'NEW'|'PRICE_CHANGED'|'CONTENT_CHANGED'|'UNCHANGED';
 const comparableSearchFields: Array<keyof Listing> = ['url','address','rooms','areaM2','floor','totalFloors','series','priceEur'];
 
 export function hasImportantSearchChange(previous: SeenRecord, current: Listing): boolean {
+  if (previous.analysisPending) return true;
   const snapshot=previous.listingSnapshot; if(!snapshot) return true;
   return comparableSearchFields.some((field)=>current[field]!==snapshot[field]);
 }
@@ -22,6 +23,7 @@ export function compactSeenRecord(previous: SeenRecord | undefined, listing: Lis
     priceHistory:changeType==='PRICE_CHANGED'?[...priceHistory,{at:listing.scrapedAt,priceEur:listing.priceEur}].slice(-50):priceHistory,
     lastNotifiedFingerprint:previous?.lastNotifiedFingerprint,
     lastStatus:previous?.lastStatus,
+    analysisPending:previous?.analysisPending,
     listingSnapshot:{...listing,description:'',imageUrls:[]},
   };
 }
