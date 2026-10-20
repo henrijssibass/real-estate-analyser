@@ -1,0 +1,53 @@
+export type SearchInput = string | { url: string; name?: string; district?: string; seriesFocus?: string; roomsFocus?: string };
+export interface ActorInput {
+  searchUrlsSource?: 'SHEET'|'INPUT';
+  searchUrls?: SearchInput[];
+  minProfit?: number;
+  maxListingsPerRun?: number;
+  scrapeDetails?: boolean;
+  dryRun?: boolean;
+  maxConcurrency?: number;
+  requestDelaySecs?: number;
+  runMode?: 'FULL_SCAN'|'INCREMENTAL';
+  fullScanAll?: boolean;
+  topDealsLimit?: number;
+  sendSummaryHeartbeat?: boolean;
+  summaryFrequency?: 'EVERY_RUN'|'DAILY'|'NEVER';
+  diagnosticForceNewListings?: number;
+  /** One-off operator preview. Sends exactly one formatted alert and exits without scraping or storage changes. */
+  telegramPreview?: { listing: Listing; analysis: UnderwritingResult };
+  /** Explicit operator-only correction/notice to the same private Telegram destination. */
+  telegramNotice?: string;
+}
+export interface Listing {
+  listingId: string; source: 'SS.com'; url: string; scrapedAt: string;
+  publishedAt: string | null; searchName: string; district: string;
+  address: string; rooms: number | null; bathrooms: number | null;
+  areaM2: number | null; floor: number | null; totalFloors: number | null;
+  series: string | null; priceEur: number | null; pricePerM2: number | null;
+  title: string; description: string; imageUrls: string[];
+  sellerType: string | null;
+}
+export interface SeenRecord {
+  listingId: string; url: string; firstSeenAt: string; lastSeenAt: string;
+  lastPriceEur: number | null; contentHash: string;
+  priceHistory: Array<{ at: string; priceEur: number | null }>;
+  lastNotifiedFingerprint?: string;
+  lastStatus?: DealStatus;
+  analysisPending?: boolean;
+  listingSnapshot?: Listing;
+}
+export type DealStatus = 'PASS'|'REVIEW'|'FAIL'|'UNCERTAIN';
+export interface UnderwritingResult {
+  underwritingVersion?: string;
+  listingId: string; status: DealStatus; importantReview: boolean;
+  renovationCostBeforeContingencyEur: number | null; renovationContingencyPct: number | null;
+  renovationCostEur: number | null; otherCostsEur: number | null;
+  totalProjectCostEur: number | null; conservativeArvEur: number | null;
+  baseArvPerM2: number | null; baseArvEur: number | null;
+  manualArvOverrideEur: number | null; underwritingArvEur: number | null; stretchArvEur: number | null;
+  expectedProfitEur: number | null; expectedProfitLowEur: number | null; expectedProfitHighEur: number | null;
+  roi: number | null; profitMargin: number | null;
+  maximumOfferEur: number | null; compCount: number; confidence: 'HIGH'|'MEDIUM'|'LOW';
+  riskFlags: string[]; comparableEvidence: string;
+}

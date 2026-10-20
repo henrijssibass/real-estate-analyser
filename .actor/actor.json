@@ -1,0 +1,9 @@
+{
+  "actorSpecification": 1,
+  "name": "ss-apartment-deal-finder",
+  "title": "SS.com Apartment Deal Finder",
+  "version": "0.1",
+  "build": { "dockerfile": "../Dockerfile" },
+  "input": "./input_schema.json",
+  "storages": { "dataset": "./dataset_schema.json" }
+}
