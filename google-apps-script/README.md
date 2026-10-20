@@ -6,6 +6,8 @@ This script must be **bound to** the existing Apartment Deal Finder spreadsheet.
 
 The bridge returns version `arv-per-m2-2026-10-20`; the Actor refuses older responses. Deploy the bridge before the matching Actor build. `dryRun: true` suppresses candidate writes as well as Actor history updates and Telegram alerts. FAIL and incomplete raw listings are never written to Sheets.
 
+Each batch reads the existing candidate table once, bulk-upserts actionable results, and removes existing rows whose re-analysis no longer qualifies. Other candidates remain untouched. The response counts `sheetsRowsWritten` and `sheetsRowsRemoved` separately; no raw-listing tab is used.
+
 Qualification uses the conservative renovation cost including contingency. The bridge also returns renovation before contingency and an upside profit value without contingency, so Telegram and `Deal_Analysis` show a transparent profit range without changing the conservative PASS/REVIEW decision.
 
 1. In the spreadsheet, open **Extensions → Apps Script**.
