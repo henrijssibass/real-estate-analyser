@@ -11,6 +11,8 @@ export interface ActorInput {
   runMode?: 'FULL_SCAN'|'INCREMENTAL';
   fullScanAll?: boolean;
   topDealsLimit?: number;
+  /** One-off, read-only shortlist: validate detail pages and split ROI/profit slots. */
+  verifiedRoiSlots?: number;
   sendSummaryHeartbeat?: boolean;
   summaryFrequency?: 'EVERY_RUN'|'DAILY'|'NEVER';
   diagnosticForceNewListings?: number;

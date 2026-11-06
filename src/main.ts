@@ -6,7 +6,8 @@ import { compactSeenRecord, hasImportantSearchChange, type ChangeType } from './
 import { loadActiveSearchUrls, syncAndUnderwrite, UNDERWRITING_VERSION, type SheetsSyncResult } from './sheets.js';
 import { notificationFingerprint, sendTelegram, sendTelegramNotice, sendTelegramSummary, shouldNotify } from './telegram.js';
 import { calendarDateInTimeZone, shouldSendSummary } from './summary-policy.js';
-import { resolveCandidateLimit, selectTopDeals } from './top-deals.js';
+import { resolveCandidateLimit, selectBalancedDeals, selectTopDeals } from './top-deals.js';
+import { verifyDealHtml } from './verify-deal.js';
 
 await Actor.init();
 const startedAt = Date.now();
@@ -15,6 +16,8 @@ const runMode = input.runMode ?? 'INCREMENTAL';
 const fullScan = runMode === 'FULL_SCAN';
 const dryRun = input.dryRun ?? false;
 const topDealsLimit = Math.min(Math.max(Math.floor(input.topDealsLimit??0),0),100);
+const verifiedShortlist=input.verifiedRoiSlots!=null;
+if(verifiedShortlist&&(!fullScan||!topDealsLimit||!Number.isInteger(input.verifiedRoiSlots)||input.verifiedRoiSlots!<0||input.verifiedRoiSlots!>topDealsLimit))throw new Error('Verified ROI slots require FULL_SCAN and a valid shortlist size');
 if(!fullScan&&(input.fullScanAll||topDealsLimit))throw new Error('All-listings and top-deal options require FULL_SCAN');
 
 if(input.telegramNotice){
@@ -51,10 +54,11 @@ if (input.searchUrlsSource === 'SHEET' || searchUrls.length === 0) {
   sheetsRequests++;
   searchUrls = await loadActiveSearchUrls();
 }
+if(verifiedShortlist)searchUrls=searchUrls.filter(item=>/\/flats\/riga\//i.test(new URL(typeof item==='string'?item:item.url).pathname));
 if (searchUrls.length === 0) throw new Error('No active public SS.com sale search URLs are configured');
 
 const candidateLimit = resolveCandidateLimit(fullScan,input.maxListingsPerRun,input.fullScanAll);
-const scrapeDetails = input.scrapeDetails ?? true;
+const scrapeDetails = !verifiedShortlist&&(input.scrapeDetails ?? true);
 const delayMs = (fullScan ? (input.requestDelaySecs ?? 1.5) : Math.min(input.requestDelaySecs ?? 0.2, 0.2)) * 1000;
 const concurrency = Math.min(input.maxConcurrency ?? (fullScan ? 2 : 4), fullScan ? 5 : 4);
 const forceNewTarget = fullScan ? 0 : Math.min(Math.max(input.diagnosticForceNewListings ?? 0, 0), 20);
@@ -198,6 +202,7 @@ const crawler = new CheerioCrawler({
       if(!listings.length&&$('a.am[href*="/msg/"]').length)throw new Error('Listing links found but apartment rows could not be parsed');
       let pageHasNewOrChanged = false;
       for (const listing of listings) {
+        if(verifiedShortlist&&!/\/flats\/riga\//i.test(new URL(listing.url).pathname))continue;
         const uniqueKey = listing.listingId || listing.url;
         if (runSeenKeys.has(uniqueKey)) continue;
         runSeenKeys.add(uniqueKey);
@@ -321,7 +326,7 @@ sampleMemory();
 
 let sheetsSync: SheetsSyncResult = {analyses:new Map(), sheetsRowsWritten:0, requests:0};
 if (evaluatedListings.length > 0) {
-  sheetsSync = await syncAndUnderwrite(evaluatedListings, input.minProfit ?? 7000, dryRun);
+  sheetsSync = await syncAndUnderwrite(evaluatedListings, input.minProfit ?? 7000, dryRun||verifiedShortlist);
   sheetsRequests += sheetsSync.requests;
 }
 const analyses = sheetsSync.analyses;
@@ -331,17 +336,53 @@ if(failedRequests)incompleteReasons.push(`${failedRequests} page requests failed
 if(scanTruncated)incompleteReasons.push('The listing limit was reached before every search ended.');
 if(blockedPagination)incompleteReasons.push('robots.txt disallowed one or more pagination pages.');
 if(evaluatedListings.length>analyses.size)incompleteReasons.push('Some listings could not be analysed.');
+const verifiedListings:Listing[]=[];
+const verificationNotes=new Map<string,string>();
+const detailExclusions:Record<string,number>={};
+let verifiedAnalyses=new Map<string,UnderwritingResult>();
+if(verifiedShortlist&&incompleteReasons.length===0){
+  const candidates=selectTopDeals(evaluatedListings,analyses,evaluatedListings.length);
+  for(const {listing} of candidates){
+    let reason='DETAIL_UNVERIFIED';
+    try{
+      const url=new URL(listing.url);
+      if(allowedHosts.has(url.hostname)&&await isAllowedByRobots(listing.url)){
+        await sleep(Math.max(800,delayMs));
+        detailPageRequests++;
+        const response=await fetch(listing.url,{redirect:'manual',signal:AbortSignal.timeout(8000)});
+        if(response.ok){
+          const checked=verifyDealHtml(await response.text(),listing);
+          if(checked.listing){
+            verifiedListings.push(checked.listing);
+            if(checked.note)verificationNotes.set(listing.listingId,checked.note);
+            continue;
+          }
+          reason=checked.reason??reason;
+        }else if(response.status===404||response.status===410)reason='UNAVAILABLE';
+      }
+    }catch{ /* Unreachable listing is not a verified candidate. */ }
+    detailExclusions[reason]=(detailExclusions[reason]??0)+1;
+  }
+  const checked=await syncAndUnderwrite(verifiedListings,input.minProfit??7000,true);
+  verifiedAnalyses=checked.analyses;
+  sheetsRequests+=checked.requests;
+  if(verifiedAnalyses.size!==verifiedListings.length)incompleteReasons.push('Some checked listings could not be recalculated.');
+}
 const scanComplete=incompleteReasons.length===0;
-const rankedDeals=topDealsLimit&&scanComplete?selectTopDeals(evaluatedListings,analyses,topDealsLimit):[];
+const rankedDeals=topDealsLimit&&scanComplete?(verifiedShortlist
+  ?selectBalancedDeals(verifiedListings,verifiedAnalyses,topDealsLimit,input.verifiedRoiSlots!)
+  :selectTopDeals(evaluatedListings,analyses,topDealsLimit)):[];
 const topRanks=new Map(rankedDeals.map(deal=>[deal.listing.listingId,deal.rank]));
+const rankedById=new Map(rankedDeals.map(deal=>[deal.listing.listingId,deal]));
 const deliveryListings=topDealsLimit?[...rankedDeals.map(deal=>deal.listing),...evaluatedListings.filter(l=>!topRanks.has(l.listingId))]:evaluatedListings;
-if(topDealsLimit)await Actor.setValue('TOP_DEALS',{scanComplete,incompleteReasons,ranking:'profit after renovation contingency and all costs',deals:rankedDeals});
+if(topDealsLimit)await Actor.setValue('TOP_DEALS',{scanComplete,incompleteReasons,detailExclusions,ranking:verifiedShortlist?'verified ROI and profit, after renovation contingency and all costs':'profit after renovation contingency and all costs',deals:rankedDeals.map(d=>({...d,note:verificationNotes.get(d.listing.listingId)}))});
 let notificationsSent = 0;
 const statusCounts: Record<string, number> = {};
 
 for (const listing of deliveryListings) {
   const internal = listing as Listing & {_changeType:string; _firstSeenAt:string};
-  const analysis = analyses.get(listing.listingId);
+  const ranked=rankedById.get(listing.listingId);
+  const analysis = ranked?.analysis??analyses.get(listing.listingId);
   const riskFlags = analysis?.riskFlags ?? ['DEAL_ANALYSIS_PENDING_SHEET_SYNC'];
   const output = {...listing, firstSeenAt:internal._firstSeenAt, isNew:internal._changeType === 'NEW', changeType:internal._changeType,
     ...(analysis ?? {status:'UNCERTAIN', confidence:'LOW'}), riskFlags, minProfitEur:input.minProfit ?? 7000};
@@ -360,8 +401,9 @@ for (const listing of deliveryListings) {
     const fingerprint = notificationFingerprint(listing, analysis);
     const hasDealNumbers = analysis.underwritingArvEur != null && analysis.expectedProfitEur != null && analysis.roi != null;
     if (selectedForDelivery && hasDealNumbers && shouldNotify(analysis, !fullScan && record.lastNotifiedFingerprint === fingerprint)) {
+      if(verifiedShortlist&&telegramRequests>0)await sleep(1100);
       telegramRequests++;
-      if (await sendTelegram(listing, analysis)) {
+      if (await sendTelegram(listing, analysis, verifiedShortlist&&ranked?{rank:ranked.rank,roiRank:ranked.roiRank!,profitRank:ranked.profitRank!,category:ranked.category!,note:verificationNotes.get(listing.listingId)}:undefined)) {
         record.lastNotifiedFingerprint = fingerprint;
         notificationsSent++;
       }
@@ -381,7 +423,7 @@ for (const listing of evaluatedListings) {
   }
 }
 
-if (historyDirty && !dryRun) await store.setValue('HISTORY_INDEX', historyIndex);
+if (historyDirty && !dryRun && !verifiedShortlist) await store.setValue('HISTORY_INDEX', historyIndex);
 
 const pass = statusCounts.PASS ?? 0;
 const review = statusCounts.REVIEW ?? 0;
@@ -400,11 +442,11 @@ if (summaryDue) {
     totalListingsDiscovered:searchRowsObserved, newListings, changedListings, skippedOldListings, evaluated:evaluatedListings.length,
     ignored:analysisIgnored, pass, review, dealNotificationsSent, runtimeSeconds:runtimeSecondsBeforeSummary,
     estimatedCostUsd:usageTotalUsd, searchPageRequests, detailPageRequests, sheetsRequests,
-    scanComplete,incompleteReasons,topDealsLimit,topDeals:rankedDeals.map(d=>({rank:d.rank,district:d.listing.district,address:d.listing.address,
+    scanComplete,incompleteReasons,topDealsLimit,verifiedShortlist,detailExclusions,topDeals:rankedDeals.map(d=>({rank:d.rank,district:d.listing.district,address:d.listing.address,category:d.category,
       profitLowEur:d.analysis.expectedProfitLowEur??d.analysis.expectedProfitEur,profitHighEur:d.analysis.expectedProfitHighEur??d.analysis.expectedProfitEur,roi:d.analysis.roi}))});
   if (summarySent) {
     notificationsSent++;
-    if(summaryFrequency==='DAILY')await store.setValue('TELEGRAM_SUMMARY_STATE', {lastSentDate:summaryDate, lastSentAt:new Date().toISOString()});
+    if(summaryFrequency==='DAILY'&&!verifiedShortlist)await store.setValue('TELEGRAM_SUMMARY_STATE', {lastSentDate:summaryDate, lastSentAt:new Date().toISOString()});
   }
 }
 sampleMemory();
@@ -424,6 +466,7 @@ const runSummary = {
   summaryFrequency, summaryDue, summaryDate, dryRun, underwritingVersion:UNDERWRITING_VERSION,
   underwritingPending:evaluatedListings.length-analyses.size, sheetsConnected:analyses.size > 0, statusCounts,
   scanComplete,incompleteReasons,topDealsLimit,topDealsSelected:rankedDeals.length,
+  verifiedShortlist,detailExclusions,detailsVerified:verifiedListings.length,
 };
 log.info('RUN_SUMMARY', runSummary);
 await Actor.setValue('RUN_SUMMARY', runSummary);

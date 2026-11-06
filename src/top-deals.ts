@@ -1,6 +1,6 @@
 import type { Listing, UnderwritingResult } from './types.js';
 
-export interface RankedDeal { rank:number; listing:Listing; analysis:UnderwritingResult }
+export interface RankedDeal { rank:number; listing:Listing; analysis:UnderwritingResult; category?:'ROI'|'PROFIT'; roiRank?:number; profitRank?:number }
 
 export function resolveCandidateLimit(fullScan:boolean, requested:number|undefined, fullScanAll=false):number {
   if(fullScan&&fullScanAll)return Number.POSITIVE_INFINITY;
@@ -22,3 +22,19 @@ export function selectTopDeals(listings:Listing[],analyses:Map<string,Underwriti
   return deals.slice(0,Math.max(0,Math.floor(limit))).map(({listing,analysis},i)=>({rank:i+1,listing,analysis}));
 }
 interface listingsWithAnalysis {listing:Listing;analysis:UnderwritingResult;profit:number}
+
+export function selectBalancedDeals(listings:Listing[],analyses:Map<string,UnderwritingResult>,limit:number,roiSlots:number):RankedDeal[]{
+  const seen=new Set<string>();
+  const profitOrder=selectTopDeals(listings,analyses,listings.length).filter(({listing:l})=>{
+    // Same layout, floor, and address is normally a cross-post. Keep the better quote.
+    const key=l.address?.trim()?[l.district,l.address,l.rooms,l.areaM2,l.floor,l.totalFloors].map(v=>String(v).toLowerCase().replace(/\s+/g,'')).join('|'):l.listingId;
+    if(seen.has(key))return false;
+    seen.add(key);return true;
+  }).map((d,i)=>({...d,rank:i+1}));
+  const roiOrder=[...profitOrder].sort((a,b)=>b.analysis.roi!-a.analysis.roi!||a.rank-b.rank);
+  const roiRanks=new Map(roiOrder.map((d,i)=>[d.listing.listingId,i+1]));
+  const roi=roiOrder.slice(0,Math.min(limit,roiSlots));
+  const used=new Set(roi.map(d=>d.listing.listingId));
+  return [...roi.map(d=>({...d,category:'ROI' as const})),...profitOrder.filter(d=>!used.has(d.listing.listingId)).slice(0,limit-roi.length).map(d=>({...d,category:'PROFIT' as const}))]
+    .map((d,i)=>({...d,rank:i+1,profitRank:d.rank,roiRank:roiRanks.get(d.listing.listingId)}));
+}
